@@ -1,0 +1,27 @@
+# Dữ liệu ảnh - quá nặng, không push lên GitHub
+images/
+segmentations/
+*.dcm
+
+# File CSV gốc nếu quá nặng (tùy chọn, bỏ comment nếu cần)
+# train-rle.csv
+
+# Output kiểm tra dữ liệu (giữ lại report .txt nếu muốn, chỉ bỏ ảnh biểu đồ)
+checkdata/*.png
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Môi trường ảo (nếu có dùng)
+venv/
+env/
+
+# macOS rác hệ thống
+.DS_Store
+
+# Model checkpoint (thường rất nặng, không nên push)
+*.pth
+*.pt
+*.h5
