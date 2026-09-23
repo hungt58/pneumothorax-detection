@@ -1,0 +1,6 @@
+albumentations>=2.0,<3
+numpy>=2.0,<3
+opencv-python-headless>=4.9,<6
+scikit-learn>=1.5,<2
+torch>=2.4,<3
+torchvision>=0.19,<1
