@@ -190,7 +190,7 @@ def calculate_pos_weight(train_records) -> tuple[float, int, int]:
         raise RuntimeError("Training split contains no positive mask pixels")
 
     raw_pos_weight = negative_pixels / positive_pixels
-    pos_weight = min(raw_pos_weight, 20.0)
+    pos_weight = min(raw_pos_weight, 5.0)
 
     print(f"Positive train pixels: {positive_pixels:,}")
     print(f"Negative train pixels: {negative_pixels:,}")
