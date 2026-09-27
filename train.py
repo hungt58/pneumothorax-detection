@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import random
 from pathlib import Path
 
 import numpy as np
 import torch
-from torch.optim import Adam
+from torch.optim import AdamW
 
 from build_dataset import build_dataloaders, build_file_list, split_data
 from losses import SegmentationLoss
@@ -21,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--masks", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument(
         "--max-train-batches",
@@ -30,7 +31,11 @@ def parse_args() -> argparse.Namespace:
         help="Stop each epoch early after this many batches (useful for a smoke test).",
     )
     parser.add_argument("--max-val-batches", type=int, default=None)
-    parser.add_argument("--checkpoint", type=Path, default=Path("unet_best.pt"))
+    parser.add_argument(
+        "--checkpoint", type=Path, default=Path("checkpoints/unet_best.pt")
+    )
+    parser.add_argument("--history", type=Path, default=Path("results/unet/history.csv"))
+    parser.add_argument("--patience", type=int, default=7)
     return parser.parse_args()
 
 
@@ -71,6 +76,7 @@ def validate(model, loader, criterion, device, max_batches):
     model.eval()
     total_loss = 0.0
     dice_total = 0.0
+    iou_total = 0.0
     batch_count = 0
     sample_count = 0
 
@@ -86,10 +92,45 @@ def validate(model, loader, criterion, device, max_batches):
         intersection = (predictions * masks).flatten(1).sum(1)
         denominator = predictions.flatten(1).sum(1) + masks.flatten(1).sum(1)
         dice_total += ((2 * intersection + 1) / (denominator + 1)).sum().item()
+        union = (
+            predictions.flatten(1).sum(1)
+            + masks.flatten(1).sum(1)
+            - intersection
+        )
+        iou_total += ((intersection + 1) / (union + 1)).sum().item()
         if max_batches is not None and step >= max_batches:
             break
 
-    return total_loss / batch_count, dice_total / sample_count
+    return (
+        total_loss / batch_count,
+        dice_total / sample_count,
+        iou_total / sample_count,
+    )
+
+
+def initialize_history(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(
+            ["epoch", "train_loss", "val_loss", "val_dice", "val_iou", "learning_rate"]
+        )
+
+
+def append_history(
+    path: Path,
+    epoch: int,
+    train_loss: float,
+    val_loss: float,
+    val_dice: float,
+    val_iou: float,
+    learning_rate: float,
+) -> None:
+    with path.open("a", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(
+            [epoch, train_loss, val_loss, val_dice, val_iou, learning_rate]
+        )
 
 
 def main() -> None:
@@ -117,39 +158,65 @@ def main() -> None:
         f"val: {len(val_records)} | test: {len(test_records)}"
     )
 
-    # A narrower U-Net is fast enough for a first end-to-end Kaggle run.
-    model = UNet(features=(16, 32, 64, 128)).to(device)
+    model = UNet(features=(32, 64, 128, 256)).to(device)
     criterion = SegmentationLoss()
-    optimizer = Adam(model.parameters(), lr=args.learning_rate)
-    best_val_loss = float("inf")
+    optimizer = AdamW(model.parameters(), lr=args.learning_rate)
+    best_val_dice = float("-inf")
+    epochs_without_improvement = 0
+    initialize_history(args.history)
 
     for epoch in range(1, args.epochs + 1):
         print(f"Epoch {epoch}/{args.epochs}")
         train_loss = train_one_epoch(
             model, train_loader, criterion, optimizer, device, args.max_train_batches
         )
-        val_loss, val_dice = validate(
+        val_loss, val_dice, val_iou = validate(
             model, val_loader, criterion, device, args.max_val_batches
+        )
+        learning_rate = optimizer.param_groups[0]["lr"]
+        append_history(
+            args.history,
+            epoch,
+            train_loss,
+            val_loss,
+            val_dice,
+            val_iou,
+            learning_rate,
         )
         print(
             f"  train_loss {train_loss:.4f} | val_loss {val_loss:.4f} | "
-            f"val_dice {val_dice:.4f}"
+            f"val_dice {val_dice:.4f} | val_iou {val_iou:.4f} | "
+            f"learning_rate {learning_rate:.2e}"
         )
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if val_dice > best_val_dice:
+            best_val_dice = val_dice
+            epochs_without_improvement = 0
             args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
                 {
                     "epoch": epoch,
+                    "features": (32, 64, 128, 256),
+                    "learning_rate": args.learning_rate,
+                    "batch_size": args.batch_size,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_loss": val_loss,
                     "val_dice": val_dice,
+                    "val_iou": val_iou,
                 },
                 args.checkpoint,
             )
             print(f"  Saved checkpoint: {args.checkpoint}")
+        else:
+            epochs_without_improvement += 1
+            print(
+                f"  No val_dice improvement for "
+                f"{epochs_without_improvement}/{args.patience} epoch(s)"
+            )
+            if epochs_without_improvement >= args.patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
 
 
 if __name__ == "__main__":
