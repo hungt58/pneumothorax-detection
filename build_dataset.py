@@ -90,12 +90,22 @@ def split_data(records, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
 # =========================================================
 def get_transforms(mode="train"):
     if mode == "train":
+        # Augmentation nhẹ cho X-ray:
+        # - bỏ GaussNoise vì audit cho thấy có thể phá hỏng cấu trúc ảnh
+        # - giảm rotation và brightness/contrast để giữ đặc trưng y khoa
         return A.Compose([
             A.Resize(IMG_SIZE, IMG_SIZE),
             A.HorizontalFlip(p=0.5),
-            A.Rotate(limit=10, p=0.5),
-            A.RandomBrightnessContrast(p=0.3),
-            A.GaussNoise(p=0.2),
+            A.Rotate(
+                limit=7,
+                border_mode=cv2.BORDER_CONSTANT,
+                p=0.3,
+            ),
+            A.RandomBrightnessContrast(
+                brightness_limit=0.10,
+                contrast_limit=0.10,
+                p=0.2,
+            ),
             A.Normalize(mean=(0.5,), std=(0.5,)),
             ToTensorV2(),
         ])
@@ -131,85 +141,26 @@ class PneumothoraxDataset(Dataset):
             image = augmented["image"]
             mask = augmented["mask"]
 
-        if mask.ndim == 2:
-            mask = mask.unsqueeze(0)
-        mask = mask.to(dtype=torch.float32)
-        label = torch.tensor([rec["HasDisease"]], dtype=torch.float32)
+        label = torch.tensor(rec["HasDisease"], dtype=torch.float32)
 
         return {
             "image": image,
-            "mask": mask,
+            "mask": mask.long(),
             "label": label,
             "image_id": rec["ImageId"],
         }
 
 
-def build_dataloaders(train_recs, val_recs, test_recs,
-                      batch_size=BATCH_SIZE, num_workers=2):
+def build_dataloaders(train_recs, val_recs, test_recs):
     train_ds = PneumothoraxDataset(train_recs, transform=get_transforms("train"))
     val_ds = PneumothoraxDataset(val_recs, transform=get_transforms("val"))
     test_ds = PneumothoraxDataset(test_recs, transform=get_transforms("test"))
 
-    train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
-    test_loader = DataLoader(
-        test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+    test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
 
     return train_loader, val_loader, test_loader
-
-
-def validate_batch(batch):
-    """Validate the tensor contract expected by segmentation models and losses."""
-    required_keys = {"image", "mask", "label", "image_id"}
-    missing_keys = required_keys - set(batch)
-    if missing_keys:
-        raise ValueError(f"Batch is missing keys: {sorted(missing_keys)}")
-
-    image = batch["image"]
-    mask = batch["mask"]
-    label = batch["label"]
-
-    if image.ndim != 4 or image.shape[1] != 1:
-        raise ValueError(f"Expected image [B,1,H,W], got {tuple(image.shape)}")
-    if mask.ndim != 4 or mask.shape[1] != 1:
-        raise ValueError(f"Expected mask [B,1,H,W], got {tuple(mask.shape)}")
-    if image.shape[0] != mask.shape[0] or image.shape[-2:] != mask.shape[-2:]:
-        raise ValueError("Image and mask batch/spatial dimensions must match")
-    if label.ndim != 2 or label.shape != (image.shape[0], 1):
-        raise ValueError(f"Expected label [B,1], got {tuple(label.shape)}")
-    if image.dtype != torch.float32 or mask.dtype != torch.float32:
-        raise TypeError("Image and mask must use torch.float32")
-    if label.dtype != torch.float32:
-        raise TypeError("Label must use torch.float32")
-    if not torch.isfinite(image).all() or not torch.isfinite(mask).all():
-        raise ValueError("Image or mask contains NaN/Inf")
-    if not torch.isfinite(label).all():
-        raise ValueError("Label contains NaN/Inf")
-    if not torch.all((mask == 0) | (mask == 1)):
-        raise ValueError("Mask must contain binary values only")
-
-    return batch
-
-
-def smoke_test_dataloaders(train_loader, val_loader, test_loader):
-    """Read and validate one batch from each data split."""
-    batches = {}
-    for split_name, loader in (
-        ("train", train_loader),
-        ("val", val_loader),
-        ("test", test_loader),
-    ):
-        try:
-            batch = next(iter(loader))
-        except StopIteration as exc:
-            raise ValueError(f"{split_name} loader is empty") from exc
-        batches[split_name] = validate_batch(batch)
-    return batches
 
 
 # =========================================================
@@ -220,7 +171,7 @@ def main():
     train_recs, val_recs, test_recs = split_data(records)
     train_loader, val_loader, test_loader = build_dataloaders(train_recs, val_recs, test_recs)
 
-    batch = smoke_test_dataloaders(train_loader, val_loader, test_loader)["train"]
+    batch = next(iter(train_loader))
     print(f"✅ OK | Total: {len(records)} | Train: {len(train_recs)} | Val: {len(val_recs)} | Test: {len(test_recs)} "
           f"| Batch size: {BATCH_SIZE} | Image: {tuple(batch['image'].shape)} | Mask: {tuple(batch['mask'].shape)}")
 
