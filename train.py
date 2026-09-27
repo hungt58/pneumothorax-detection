@@ -174,16 +174,14 @@ def append_history(
 
 
 def calculate_pos_weight(train_records) -> tuple[float, int, int]:
-    """Compute BCE positive-class weight from masks in the training split only."""
+    """Compute pixel imbalance from TRAIN masks and cap BCE pos_weight at 20."""
     positive_pixels = 0
     total_pixels = 0
 
     for record in train_records:
-        # build_dataset records store the matched mask path in MaskPath.
         mask = cv2.imread(str(record["MaskPath"]), cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise FileNotFoundError(f'Could not read mask: {record["MaskPath"]}')
-
         positive_pixels += int(np.count_nonzero(mask > 0))
         total_pixels += int(mask.size)
 
@@ -191,11 +189,13 @@ def calculate_pos_weight(train_records) -> tuple[float, int, int]:
     if positive_pixels == 0:
         raise RuntimeError("Training split contains no positive mask pixels")
 
-    pos_weight = negative_pixels / positive_pixels
+    raw_pos_weight = negative_pixels / positive_pixels
+    pos_weight = min(raw_pos_weight, 20.0)
 
     print(f"Positive train pixels: {positive_pixels:,}")
     print(f"Negative train pixels: {negative_pixels:,}")
-    print(f"Raw pos_weight (negative/positive): {pos_weight:.4f}")
+    print(f"Raw pos_weight (negative/positive): {raw_pos_weight:.4f}")
+    print(f"Effective pos_weight used for training: {pos_weight:.4f}")
 
     return float(pos_weight), positive_pixels, negative_pixels
 
