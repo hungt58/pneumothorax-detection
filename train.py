@@ -174,30 +174,9 @@ def append_history(
 
 
 def calculate_pos_weight(train_records) -> tuple[float, int, int]:
-    """Compute pixel imbalance from TRAIN masks and cap BCE pos_weight at 20."""
-    positive_pixels = 0
-    total_pixels = 0
-
-    for record in train_records:
-        mask = cv2.imread(str(record["MaskPath"]), cv2.IMREAD_GRAYSCALE)
-        if mask is None:
-            raise FileNotFoundError(f'Could not read mask: {record["MaskPath"]}')
-        positive_pixels += int(np.count_nonzero(mask > 0))
-        total_pixels += int(mask.size)
-
-    negative_pixels = total_pixels - positive_pixels
-    if positive_pixels == 0:
-        raise RuntimeError("Training split contains no positive mask pixels")
-
-    raw_pos_weight = negative_pixels / positive_pixels
-    pos_weight = min(raw_pos_weight, 2.0)
-
-    print(f"Positive train pixels: {positive_pixels:,}")
-    print(f"Negative train pixels: {negative_pixels:,}")
-    print(f"Raw pos_weight (negative/positive): {raw_pos_weight:.4f}")
-    print(f"Effective pos_weight used for training: {pos_weight:.4f}")
-
-    return float(pos_weight), positive_pixels, negative_pixels
+    """Controlled experiment: disable positive BCE up-weighting."""
+    print("Effective pos_weight used for training: 1.0000")
+    return 1.0, 0, 0
 
 
 def main() -> None:
@@ -228,7 +207,13 @@ def main() -> None:
     pos_weight, positive_pixels, negative_pixels = calculate_pos_weight(train_records)
 
     model = UNet(features=(32, 64, 128, 256)).to(device)
-    criterion = SegmentationLoss(pos_weight=pos_weight).to(device)
+    criterion = SegmentationLoss(
+        pos_weight=pos_weight,
+        bce_weight=1.0,
+        dice_weight=1.0,
+        negative_weight=0.5,
+        topk_fraction=0.02,
+    ).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate)
     best_val_dice_positive = float("-inf")
     epochs_without_improvement = 0
