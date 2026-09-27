@@ -90,22 +90,12 @@ def split_data(records, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
 # =========================================================
 def get_transforms(mode="train"):
     if mode == "train":
-        # Augmentation nhẹ cho X-ray:
-        # - bỏ GaussNoise vì audit cho thấy có thể phá hỏng cấu trúc ảnh
-        # - giảm rotation và brightness/contrast để giữ đặc trưng y khoa
         return A.Compose([
             A.Resize(IMG_SIZE, IMG_SIZE),
             A.HorizontalFlip(p=0.5),
-            A.Rotate(
-                limit=7,
-                border_mode=cv2.BORDER_CONSTANT,
-                p=0.3,
-            ),
-            A.RandomBrightnessContrast(
-                brightness_limit=0.10,
-                contrast_limit=0.10,
-                p=0.2,
-            ),
+            A.Rotate(limit=10, p=0.5),
+            A.RandomBrightnessContrast(p=0.3),
+            A.GaussNoise(p=0.2),
             A.Normalize(mean=(0.5,), std=(0.5,)),
             ToTensorV2(),
         ])
@@ -141,24 +131,43 @@ class PneumothoraxDataset(Dataset):
             image = augmented["image"]
             mask = augmented["mask"]
 
-        label = torch.tensor(rec["HasDisease"], dtype=torch.float32)
+        # Segmentation target: [1, H, W], float32
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0)
+
+        label = torch.tensor([rec["HasDisease"]], dtype=torch.float32)
 
         return {
-            "image": image,
-            "mask": mask.long(),
+            "image": image.float(),
+            "mask": mask.float(),
             "label": label,
             "image_id": rec["ImageId"],
         }
 
 
-def build_dataloaders(train_recs, val_recs, test_recs):
+def build_dataloaders(
+    train_recs,
+    val_recs,
+    test_recs,
+    batch_size=BATCH_SIZE,
+    num_workers=2
+):
     train_ds = PneumothoraxDataset(train_recs, transform=get_transforms("train"))
     val_ds = PneumothoraxDataset(val_recs, transform=get_transforms("val"))
     test_ds = PneumothoraxDataset(test_recs, transform=get_transforms("test"))
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
-    test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=True
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True
+    )
 
     return train_loader, val_loader, test_loader
 
