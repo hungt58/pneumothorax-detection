@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 
 import numpy as np
+import cv2
 import torch
 from torch.optim import AdamW
 
@@ -171,6 +172,34 @@ def append_history(
         )
 
 
+
+def calculate_pos_weight(train_records) -> tuple[float, int, int]:
+    """Compute BCE positive-class weight from masks in the training split only."""
+    positive_pixels = 0
+    total_pixels = 0
+
+    for record in train_records:
+        # build_dataset records store the matched mask path in MaskPath.
+        mask = cv2.imread(str(record["MaskPath"]), cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            raise FileNotFoundError(f'Could not read mask: {record["MaskPath"]}')
+
+        positive_pixels += int(np.count_nonzero(mask > 0))
+        total_pixels += int(mask.size)
+
+    negative_pixels = total_pixels - positive_pixels
+    if positive_pixels == 0:
+        raise RuntimeError("Training split contains no positive mask pixels")
+
+    pos_weight = negative_pixels / positive_pixels
+
+    print(f"Positive train pixels: {positive_pixels:,}")
+    print(f"Negative train pixels: {negative_pixels:,}")
+    print(f"Raw pos_weight (negative/positive): {pos_weight:.4f}")
+
+    return float(pos_weight), positive_pixels, negative_pixels
+
+
 def main() -> None:
     args = parse_args()
     if not args.images.is_dir() or not args.masks.is_dir():
@@ -196,8 +225,10 @@ def main() -> None:
         f"val: {len(val_records)} | test: {len(test_records)}"
     )
 
+    pos_weight, positive_pixels, negative_pixels = calculate_pos_weight(train_records)
+
     model = UNet(features=(32, 64, 128, 256)).to(device)
-    criterion = SegmentationLoss()
+    criterion = SegmentationLoss(pos_weight=pos_weight).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate)
     best_val_dice_positive = float("-inf")
     epochs_without_improvement = 0
@@ -256,6 +287,9 @@ def main() -> None:
                     "features": (32, 64, 128, 256),
                     "learning_rate": args.learning_rate,
                     "batch_size": args.batch_size,
+                    "pos_weight": pos_weight,
+                    "positive_train_pixels": positive_pixels,
+                    "negative_train_pixels": negative_pixels,
                 },
                 args.checkpoint,
             )
