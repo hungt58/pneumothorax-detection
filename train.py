@@ -77,6 +77,10 @@ def validate(model, loader, criterion, device, max_batches):
     total_loss = 0.0
     dice_total = 0.0
     iou_total = 0.0
+    positive_dice_total = 0.0
+    positive_iou_total = 0.0
+    positive_sample_count = 0
+    predicted_positive_count = 0
     batch_count = 0
     sample_count = 0
 
@@ -91,20 +95,41 @@ def validate(model, loader, criterion, device, max_batches):
         predictions = (torch.sigmoid(logits) >= 0.5).float()
         intersection = (predictions * masks).flatten(1).sum(1)
         denominator = predictions.flatten(1).sum(1) + masks.flatten(1).sum(1)
-        dice_total += ((2 * intersection + 1) / (denominator + 1)).sum().item()
+        dice_per_sample = (2 * intersection + 1) / (denominator + 1)
+        dice_total += dice_per_sample.sum().item()
+
         union = (
             predictions.flatten(1).sum(1)
             + masks.flatten(1).sum(1)
             - intersection
         )
-        iou_total += ((intersection + 1) / (union + 1)).sum().item()
+        iou_per_sample = (intersection + 1) / (union + 1)
+        iou_total += iou_per_sample.sum().item()
+
+        # Positive-only segmentation metrics prevent the many empty masks from
+        # dominating model selection. A sample is positive when its GT mask
+        # contains at least one pneumothorax pixel.
+        target_positive = masks.flatten(1).sum(1) > 0
+        predicted_positive = predictions.flatten(1).sum(1) > 0
+        predicted_positive_count += predicted_positive.sum().item()
+
+        if target_positive.any():
+            positive_dice_total += dice_per_sample[target_positive].sum().item()
+            positive_iou_total += iou_per_sample[target_positive].sum().item()
+            positive_sample_count += target_positive.sum().item()
         if max_batches is not None and step >= max_batches:
             break
+
+    if positive_sample_count == 0:
+        raise RuntimeError("Validation set contains no positive masks")
 
     return (
         total_loss / batch_count,
         dice_total / sample_count,
         iou_total / sample_count,
+        positive_dice_total / positive_sample_count,
+        positive_iou_total / positive_sample_count,
+        predicted_positive_count / sample_count,
     )
 
 
@@ -113,7 +138,12 @@ def initialize_history(path: Path) -> None:
     with path.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(
-            ["epoch", "train_loss", "val_loss", "val_dice", "val_iou", "learning_rate"]
+            [
+                "epoch", "train_loss", "val_loss",
+                "val_dice_all", "val_iou_all",
+                "val_dice_positive", "val_iou_positive",
+                "predicted_positive_rate", "learning_rate",
+            ]
         )
 
 
@@ -122,14 +152,22 @@ def append_history(
     epoch: int,
     train_loss: float,
     val_loss: float,
-    val_dice: float,
-    val_iou: float,
+    val_dice_all: float,
+    val_iou_all: float,
+    val_dice_positive: float,
+    val_iou_positive: float,
+    predicted_positive_rate: float,
     learning_rate: float,
 ) -> None:
     with path.open("a", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(
-            [epoch, train_loss, val_loss, val_dice, val_iou, learning_rate]
+            [
+                epoch, train_loss, val_loss,
+                val_dice_all, val_iou_all,
+                val_dice_positive, val_iou_positive,
+                predicted_positive_rate, learning_rate,
+            ]
         )
 
 
@@ -161,7 +199,7 @@ def main() -> None:
     model = UNet(features=(32, 64, 128, 256)).to(device)
     criterion = SegmentationLoss()
     optimizer = AdamW(model.parameters(), lr=args.learning_rate)
-    best_val_dice = float("-inf")
+    best_val_dice_positive = float("-inf")
     epochs_without_improvement = 0
     initialize_history(args.history)
 
@@ -170,40 +208,54 @@ def main() -> None:
         train_loss = train_one_epoch(
             model, train_loader, criterion, optimizer, device, args.max_train_batches
         )
-        val_loss, val_dice, val_iou = validate(
-            model, val_loader, criterion, device, args.max_val_batches
-        )
+        (
+            val_loss,
+            val_dice_all,
+            val_iou_all,
+            val_dice_positive,
+            val_iou_positive,
+            predicted_positive_rate,
+        ) = validate(model, val_loader, criterion, device, args.max_val_batches)
         learning_rate = optimizer.param_groups[0]["lr"]
         append_history(
             args.history,
             epoch,
             train_loss,
             val_loss,
-            val_dice,
-            val_iou,
+            val_dice_all,
+            val_iou_all,
+            val_dice_positive,
+            val_iou_positive,
+            predicted_positive_rate,
             learning_rate,
         )
         print(
             f"  train_loss {train_loss:.4f} | val_loss {val_loss:.4f} | "
-            f"val_dice {val_dice:.4f} | val_iou {val_iou:.4f} | "
+            f"val_dice_all {val_dice_all:.4f} | val_iou_all {val_iou_all:.4f} | "
+            f"val_dice_positive {val_dice_positive:.4f} | "
+            f"val_iou_positive {val_iou_positive:.4f} | "
+            f"pred_positive_rate {predicted_positive_rate:.4f} | "
             f"learning_rate {learning_rate:.2e}"
         )
 
-        if val_dice > best_val_dice:
-            best_val_dice = val_dice
+        if val_dice_positive > best_val_dice_positive:
+            best_val_dice_positive = val_dice_positive
             epochs_without_improvement = 0
             args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
                 {
                     "epoch": epoch,
-                    "features": (32, 64, 128, 256),
-                    "learning_rate": args.learning_rate,
-                    "batch_size": args.batch_size,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
                     "val_loss": val_loss,
-                    "val_dice": val_dice,
-                    "val_iou": val_iou,
+                    "val_dice_all": val_dice_all,
+                    "val_iou_all": val_iou_all,
+                    "val_dice_positive": val_dice_positive,
+                    "val_iou_positive": val_iou_positive,
+                    "predicted_positive_rate": predicted_positive_rate,
+                    "features": (32, 64, 128, 256),
+                    "learning_rate": args.learning_rate,
+                    "batch_size": args.batch_size,
                 },
                 args.checkpoint,
             )
@@ -211,7 +263,7 @@ def main() -> None:
         else:
             epochs_without_improvement += 1
             print(
-                f"  No val_dice improvement for "
+                f"  No val_dice_positive improvement for "
                 f"{epochs_without_improvement}/{args.patience} epoch(s)"
             )
             if epochs_without_improvement >= args.patience:
