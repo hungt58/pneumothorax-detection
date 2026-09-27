@@ -1,11 +1,5 @@
-"""Các loss dùng cho model segmentation và multi-task về sau."""
+"""Loss functions for pneumothorax segmentation."""
 
-# Export các loss tại package level để train.py có thể:
-# from losses import SegmentationLoss
-from .dice_loss import PositiveDiceLoss, NegativeTopKLoss, SegmentationLoss
+from .dice_loss import DiceLoss, PositiveDiceLoss, SegmentationLoss
 
-__all__ = [
-    "PositiveDiceLoss",
-    "NegativeTopKLoss",
-    "SegmentationLoss",
-]
+__all__ = ["DiceLoss", "PositiveDiceLoss", "SegmentationLoss"]
