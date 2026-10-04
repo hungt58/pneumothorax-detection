@@ -1,5 +1,7 @@
 # SIIM-ACR Pneumothorax — Data Pipeline
 
+E1-E4 model implementations, training, validation threshold tuning, and Kaggle commands: [RUN_E1_E4_KAGGLE.md](RUN_E1_E4_KAGGLE.md).
+
 Pipeline xử lý dữ liệu cho đề tài phân đoạn/phát hiện tràn khí màng phổi từ ảnh X-quang ngực.
 Dataset gốc: [SIIM-ACR Pneumothorax Segmentation (Kaggle)](https://www.kaggle.com/datasets/jesperdramsch/siim-acr-pneumothorax-segmentation-data)
 

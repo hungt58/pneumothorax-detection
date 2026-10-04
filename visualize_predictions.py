@@ -11,7 +11,8 @@ import numpy as np
 import torch
 
 from build_dataset import build_dataloaders, build_file_list, split_data
-from models import UNet
+from models.factory import load_model_from_checkpoint
+from evaluation import final_mask, image_categories
 
 
 def parse_args():
@@ -22,9 +23,10 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--threshold", type=float, default=0.5)
+    p.add_argument("--cls-threshold", type=float)
+    p.add_argument("--min-pred-pixels", type=int, default=64)
     p.add_argument("--num-samples", type=int, default=24)
-    p.add_argument("--output-dir", type=Path,
-                   default=Path("results/unet/visualizations"))
+    p.add_argument("--output-dir", type=Path)
     return p.parse_args()
 
 
@@ -57,23 +59,25 @@ def main():
     )
     print("Visualization uses VALIDATION only; test set untouched.")
 
-    ckpt = torch.load(a.checkpoint, map_location=device)
-    features = tuple(ckpt.get("features", (32, 64, 128, 256)))
-    model = UNet(features=features).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
+    if ckpt.get("model_name") == "resnet18_multitask" and a.cls_threshold is None:
+        raise ValueError("E4 visualization requires --cls-threshold")
+    model = load_model_from_checkpoint(ckpt).to(device)
     model.eval()
 
     samples = []
     for batch in val_loader:
         images = batch["image"].to(device, non_blocking=True)
         masks = batch["mask"].cpu()
-        probs = torch.sigmoid(model(images)).cpu()
-        preds = (probs >= a.threshold).float()
+        outputs = model(images)
+        logits = outputs["segmentation_logits"] if isinstance(outputs, dict) else outputs
+        probs = torch.sigmoid(logits).cpu()
+        preds = final_mask(outputs, a.threshold, a.cls_threshold).cpu()
         images = images.cpu()
 
         for i in range(images.shape[0]):
-            gt_pos = bool(masks[i].sum() > 0)
-            pred_pos = bool(preds[i].sum() > 0)
+            predicted, target = image_categories(preds[i:i+1], masks[i:i+1], a.min_pred_pixels)
+            gt_pos, pred_pos = bool(target[0]), bool(predicted[0])
 
             if gt_pos and pred_pos:
                 category = "TP"
@@ -117,6 +121,11 @@ def main():
                 if len(selected) >= a.num_samples:
                     break
 
+    if a.output_dir is None:
+        experiment = {"unet": "unet", "attention_unet": "e2_attention_unet",
+                      "attention_multiscale_unet": "e3_attention_multiscale",
+                      "resnet18_multitask": "e4_resnet18_multitask"}[ckpt.get("model_name", "unet")]
+        a.output_dir = Path(f"results/{experiment}/visualizations")
     a.output_dir.mkdir(parents=True, exist_ok=True)
 
     for idx, s in enumerate(selected[:a.num_samples], 1):

@@ -10,7 +10,8 @@ import numpy as np
 import torch
 
 from build_dataset import build_dataloaders, build_file_list, split_data
-from models import UNet
+from models.factory import load_model_from_checkpoint
+from evaluation import final_mask
 
 
 def parse_args():
@@ -22,8 +23,7 @@ def parse_args():
     p.add_argument("--min-pred-pixels", type=int, default=64)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--num-workers", type=int, default=2)
-    p.add_argument("--output", type=Path,
-                   default=Path("results/unet/final_test_metrics.csv"))
+    p.add_argument("--output", type=Path)
     return p.parse_args()
 
 
@@ -58,10 +58,10 @@ def main():
         f"min_pred_pixels={a.min_pred_pixels}"
     )
 
-    ckpt = torch.load(a.checkpoint, map_location=device)
-    features = tuple(ckpt.get("features", (32, 64, 128, 256)))
-    model = UNet(features=features).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
+    if ckpt.get("model_name") == "resnet18_multitask":
+        raise ValueError("E4 needs --cls-threshold; use evaluate_multitask_thresholds.py --split test")
+    model = load_model_from_checkpoint(ckpt).to(device)
     model.eval()
 
     dice_sum = iou_sum = 0.0
@@ -72,8 +72,7 @@ def main():
         images = batch["image"].to(device, non_blocking=True)
         masks = batch["mask"].float().to(device, non_blocking=True)
 
-        probs = torch.sigmoid(model(images))
-        pred = (probs >= a.threshold).float()
+        pred = final_mask(model(images), a.threshold)
 
         pf = pred.flatten(1)
         mf = masks.flatten(1)
@@ -121,6 +120,10 @@ def main():
         else:
             print(f"{k}: {v}")
 
+    if a.output is None:
+        experiment = {"unet": "unet", "attention_unet": "e2_attention_unet",
+                      "attention_multiscale_unet": "e3_attention_multiscale"}[ckpt.get("model_name", "unet")]
+        a.output = Path(f"results/{experiment}/final_test_metrics.csv")
     a.output.parent.mkdir(parents=True, exist_ok=True)
     with a.output.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=metrics.keys())

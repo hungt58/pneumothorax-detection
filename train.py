@@ -1,4 +1,4 @@
-"""Train the clean balanced-sampling baseline U-Net."""
+"""Train E1-E4 with the fixed balanced-sampling protocol."""
 from __future__ import annotations
 
 import argparse
@@ -12,14 +12,18 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from build_dataset import build_dataloaders, build_file_list, split_data
-from losses import SegmentationLoss
-from models import UNet
+from losses import MultiTaskLoss, SegmentationLoss
+from models.factory import MODEL_NAMES, build_model
+from evaluation import final_mask
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--images", type=Path, required=True)
     p.add_argument("--masks", type=Path, required=True)
+    p.add_argument("--model", choices=MODEL_NAMES, default="unet")
+    p.add_argument("--no-pretrained", action="store_true", help="E4 smoke tests without downloading weights")
+    p.add_argument("--cls-threshold", type=float, default=0.5)
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--learning-rate", type=float, default=1e-4)
@@ -29,8 +33,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-pred-pixels", type=int, default=64)
     p.add_argument("--max-train-batches", type=int, default=None)
     p.add_argument("--max-val-batches", type=int, default=None)
-    p.add_argument("--checkpoint", type=Path, default=Path("checkpoints/unet_balanced_best.pt"))
-    p.add_argument("--history", type=Path, default=Path("results/unet/history_balanced.csv"))
+    p.add_argument("--checkpoint", type=Path)
+    p.add_argument("--history", type=Path)
     p.add_argument("--patience", type=int, default=7)
     return p.parse_args()
 
@@ -55,8 +59,8 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches, ep
         masks = batch["mask"].to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
-        logits = model(images)
-        loss = criterion(logits, masks)
+        outputs = model(images)
+        loss = criterion(outputs, masks, batch["label"].to(device)) if isinstance(outputs, dict) else criterion(outputs, masks)
         loss.backward()
         optimizer.step()
 
@@ -71,7 +75,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches, ep
 
 
 @torch.inference_mode()
-def validate(model, loader, criterion, device, threshold, min_pred_pixels, max_batches):
+def validate(model, loader, criterion, device, threshold, min_pred_pixels, max_batches, cls_threshold=0.5):
     model.eval()
     total_loss = 0.0
     batch_count = sample_count = 0
@@ -82,12 +86,13 @@ def validate(model, loader, criterion, device, threshold, min_pred_pixels, max_b
     for step, batch in enumerate(loader, start=1):
         images = batch["image"].to(device, non_blocking=True)
         masks = batch["mask"].to(device, non_blocking=True)
-        logits = model(images)
-        total_loss += criterion(logits, masks).item()
+        outputs = model(images)
+        total_loss += (criterion(outputs, masks, batch["label"].to(device)) if isinstance(outputs, dict)
+                       else criterion(outputs, masks)).item()
         batch_count += 1
         sample_count += masks.shape[0]
 
-        pred = (torch.sigmoid(logits) >= threshold).float()
+        pred = final_mask(outputs, threshold, cls_threshold)
         pred_pixels = pred.flatten(1).sum(1)
         target_pixels = masks.flatten(1).sum(1)
         target_positive = target_pixels > 0
@@ -168,6 +173,14 @@ def main() -> None:
     if not args.images.is_dir() or not args.masks.is_dir():
         raise FileNotFoundError("--images and --masks must point to existing folders")
 
+    experiment = {"unet": "e1_unet", "attention_unet": "e2_attention_unet",
+                  "attention_multiscale_unet": "e3_attention_multiscale",
+                  "resnet18_multitask": "e4_resnet18_multitask"}[args.model]
+    if args.checkpoint is None:
+        args.checkpoint = Path("checkpoints/unet_balanced_best.pt") if args.model == "unet" else Path(f"checkpoints/{experiment}_best.pt")
+    if args.history is None:
+        args.history = Path("results/unet/history_balanced.csv") if args.model == "unet" else Path(f"results/{experiment}/history.csv")
+
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -189,10 +202,17 @@ def main() -> None:
         f"val: {len(val_records)} | test: {len(test_records)}"
     )
     print(f"Balanced TRAIN batches: {args.batch_size//2} positive + {args.batch_size//2} negative")
-    print("Loss: BCEWithLogits(all images) + PositiveDice(positive masks only)")
+    loss_description = "BCEWithLogits(all images) + PositiveDice(positive masks only)"
+    if args.model == "resnet18_multitask":
+        loss_description += " + BCEWithLogits(image classification)"
+    print(f"Loss: {loss_description}")
 
-    model = UNet(features=(32, 64, 128, 256)).to(device)
-    criterion = SegmentationLoss(bce_weight=1.0, dice_weight=1.0).to(device)
+    model_kwargs = ({"in_channels": 1, "out_channels": 1, "pretrained": not args.no_pretrained}
+                    if args.model == "resnet18_multitask" else
+                    {"in_channels": 1, "out_channels": 1, "features": (32, 64, 128, 256)})
+    model = build_model(args.model, **model_kwargs).to(device)
+    criterion = (MultiTaskLoss() if args.model == "resnet18_multitask" else
+                 SegmentationLoss(bce_weight=1.0, dice_weight=1.0)).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=3, min_lr=1e-6)
 
@@ -208,7 +228,7 @@ def main() -> None:
         )
         metrics = validate(
             model, val_loader, criterion, device,
-            args.threshold, args.min_pred_pixels, args.max_val_batches,
+            args.threshold, args.min_pred_pixels, args.max_val_batches, args.cls_threshold,
         )
         scheduler.step(metrics["selection_score"])
         lr = optimizer.param_groups[0]["lr"]
@@ -231,10 +251,13 @@ def main() -> None:
                 {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
+                    "model_name": args.model,
+                    "model_kwargs": model_kwargs,
                     "optimizer_state_dict": optimizer.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict(),
                     "features": (32, 64, 128, 256),
                     "threshold": args.threshold,
+                    "cls_threshold": args.cls_threshold if args.model == "resnet18_multitask" else None,
                     "min_pred_pixels": args.min_pred_pixels,
                     "balanced_train": True,
                     "loss": "BCE + positive-only Dice",

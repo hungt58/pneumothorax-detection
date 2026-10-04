@@ -15,7 +15,8 @@ import numpy as np
 import torch
 
 from build_dataset import build_dataloaders, build_file_list, split_data
-from models import UNet
+from models.factory import load_model_from_checkpoint
+from evaluation import batch_metrics, summarize
 
 
 def parse_args():
@@ -29,8 +30,7 @@ def parse_args():
     p.add_argument("--threshold-start", type=float, default=0.30)
     p.add_argument("--threshold-end", type=float, default=0.95)
     p.add_argument("--threshold-step", type=float, default=0.05)
-    p.add_argument("--output", type=Path,
-                   default=Path("results/unet/threshold_tuning.csv"))
+    p.add_argument("--output", type=Path)
     return p.parse_args()
 
 
@@ -73,11 +73,10 @@ def main():
     print("Threshold tuning: VALIDATION ONLY; test remains untouched.")
     print(f"Image positive rule: predicted pixels >= {a.min_pred_pixels}")
 
-    ckpt = torch.load(a.checkpoint, map_location=device)
-    features = tuple(ckpt.get("features", (32, 64, 128, 256)))
-
-    model = UNet(features=features).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
+    if ckpt.get("model_name") == "resnet18_multitask":
+        raise ValueError("Use evaluate_multitask_thresholds.py for E4")
+    model = load_model_from_checkpoint(ckpt).to(device)
     model.eval()
 
     probs_all, masks_all = [], []
@@ -118,19 +117,11 @@ def main():
         )
         iou = (intersection + 1.0) / (union + 1.0)
 
-        predicted_positive = pred_pixels >= a.min_pred_pixels
-        tp = int((predicted_positive & target_positive).sum().item())
-        fn = int((~predicted_positive & target_positive).sum().item())
-        fp = int((predicted_positive & target_negative).sum().item())
-        tn = int((~predicted_positive & target_negative).sum().item())
-
-        dice_pos = float(dice[target_positive].mean().item())
-        iou_pos = float(iou[target_positive].mean().item())
-        sensitivity = tp / max(tp + fn, 1)
-        specificity = tn / max(tn + fp, 1)
-        fpr = fp / max(fp + tn, 1)
-        pred_rate = (tp + fp) / max(len(masks), 1)
-        score = balance_score(dice_pos, specificity)
+        summary = summarize([batch_metrics(pred, masks, a.min_pred_pixels)])
+        dice_pos, iou_pos = summary["dice_positive"], summary["iou_positive"]
+        sensitivity, specificity = summary["image_sensitivity"], summary["image_specificity"]
+        fpr, pred_rate, score = summary["false_positive_rate"], summary["predicted_positive_rate"], summary["selection_score"]
+        tp, fn, fp, tn = (summary[key] for key in ("tp", "fn", "fp", "tn"))
 
         row = {
             "threshold": thr,
@@ -153,6 +144,10 @@ def main():
 
     best = max(rows, key=lambda r: r["selection_score"])
 
+    if a.output is None:
+        experiment = {"unet": "unet", "attention_unet": "e2_attention_unet",
+                      "attention_multiscale_unet": "e3_attention_multiscale"}[ckpt.get("model_name", "unet")]
+        a.output = Path(f"results/{experiment}/threshold_tuning.csv")
     a.output.parent.mkdir(parents=True, exist_ok=True)
     with a.output.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
