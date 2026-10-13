@@ -1,73 +1,218 @@
-# SIIM-ACR Pneumothorax — Data Pipeline
+# Pneumothorax Detection with Deep Learning
 
-E1-E4 model implementations, training, validation threshold tuning, and Kaggle commands: [RUN_E1_E4_KAGGLE.md](RUN_E1_E4_KAGGLE.md).
+A deep learning project for pneumothorax segmentation from chest X-ray images using four PyTorch models. The project provides a local web interface built with Streamlit for running predictions and visualizing results.
 
-Pipeline xử lý dữ liệu cho đề tài phân đoạn/phát hiện tràn khí màng phổi từ ảnh X-quang ngực.
-Dataset gốc: [SIIM-ACR Pneumothorax Segmentation (Kaggle)](https://www.kaggle.com/datasets/jesperdramsch/siim-acr-pneumothorax-segmentation-data)
+> **Disclaimer:** This project is intended for research and educational purposes only. It is not a medical device and must not be used as a substitute for professional medical diagnosis.
 
-## Cấu trúc thư mục
+## Features
 
-```
-.
-├── images/                          # Ảnh X-quang gốc (.png), convert từ DICOM
-├── segmentations/                   # Mask tương ứng (.png), decode từ RLE trong train-rle.csv
-├── checkdata/                       # Output của check_match.py
-│   ├── check_match_report.txt
-│   └── disease_statistics_chart.png
-├── check_match.py                   # Kiểm tra khớp file + thống kê có bệnh/không bệnh
-├── build_dataset.py                 # Chia train/val/test, resize, normalize, augment, tạo DataLoader
+- Upload chest X-ray images through a web interface.
+- Select one of four trained models:
+  - U-Net
+  - Attention U-Net
+  - Attention Multi-scale U-Net
+  - ResNet18 Multi-task
+- Visualize the input X-ray, predicted probability map, and segmentation overlay.
+- Display classification probability when supported by the selected model.
+- Download the predicted segmentation mask as a PNG image.
+- Run locally on your computer using Streamlit.
+
+## Project Structure
+
+```text
+SIIM-ACR Pneumothorax Training/
+├── app.py
+├── models/
+│   └── factory.py
+├── checkpoints/
+│   ├── e1_unet_best.pt
+│   ├── e2_attention_unet_best.pt
+│   ├── e3_attention_multiscale_best.pt
+│   └── e4_resnet18_multitask_best.pt
+├── predictions/
+├── requirements.txt
 └── README.md
 ```
 
-## Cài đặt
+The structure above is an example. Keep any additional source files and configuration files required by your project.
+
+## Requirements
+
+- Python 3.10 recommended.
+- Git.
+- PyTorch.
+- Streamlit.
+- NumPy, Pillow, and Matplotlib.
+- The trained model checkpoints.
+
+## Installation
+
+### 1. Clone the repository
+
+Replace `<REPOSITORY_URL>` with the actual GitHub repository URL.
 
 ```bash
-pip install torch torchvision albumentations opencv-python scikit-learn numpy matplotlib
+git clone <REPOSITORY_URL>
+cd "SIIM-ACR Pneumothorax Training"
 ```
 
-## Thứ tự chạy
+If Git clones the repository into a differently named directory, navigate to that directory instead.
 
-### 1. Kiểm tra dữ liệu
+### 2. Create a virtual environment
+
+**macOS / Linux**
 
 ```bash
-mkdir -p checkdata
-python check_match.py
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 ```
 
-Kiểm tra:
-- Số ảnh trong `images/` và `segmentations/` có khớp tên nhau không
-- Thống kê số ảnh **có bệnh** / **không bệnh** dựa trên mask (mask toàn đen = không bệnh)
+**Windows PowerShell**
 
-Output: `checkdata/check_match_report.txt`, `checkdata/disease_statistics_chart.png`
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+```
 
-### 2. Build dataset + DataLoader
+### 3. Install dependencies
+
+If the repository includes a `requirements.txt` file:
 
 ```bash
-python build_dataset.py
+python -m pip install -r requirements.txt
 ```
 
-Thực hiện:
-- Chia dữ liệu Train (70%) / Validation (15%) / Test (15%), stratified theo nhãn có bệnh/không bệnh
-- Resize ảnh + mask về 256×256
-- Normalize pixel về khoảng chuẩn (mean=0.5, std=0.5)
-- Data Augmentation (chỉ áp dụng cho tập Train): flip ngang, xoay nhẹ, chỉnh sáng/tương phản, nhiễu Gauss
-- Tạo `train_loader`, `val_loader`, `test_loader` (PyTorch DataLoader, batch size = 16)
+If dependencies are not fully specified in that file, install the packages required by the application:
 
-Chạy xong sẽ in ra 1 dòng xác nhận thông số, ví dụ:
-```
-✅ OK | Total: 12047 | Train: 8432 | Val: 1807 | Test: 1808 | Batch size: 16 | Image: (16, 1, 256, 256) | Mask: (16, 256, 256)
+```bash
+python -m pip install streamlit numpy pillow matplotlib
 ```
 
-## Cấu hình có thể chỉnh
+Install a compatible PyTorch version by following the official instructions:
 
-Trong `build_dataset.py`:
+https://pytorch.org/get-started/locally/
 
-| Biến | Mặc định | Ý nghĩa |
-|---|---|---|
-| `IMG_SIZE` | 256 | Kích thước resize ảnh/mask |
-| `BATCH_SIZE` | 16 | Số ảnh mỗi batch |
-| `RANDOM_SEED` | 42 | Seed để chia train/val/test cố định, tái lặp được kết quả |
+Additional dependencies may be required by the model implementations under `models/`.
 
-## Bước tiếp theo (không nằm trong phần này)
+### 4. Prepare model checkpoints
 
-`train_loader` / `val_loader` / `test_loader` sẵn sàng để đưa vào định nghĩa model (U-Net), viết training loop, đánh giá bằng Dice score / IoU, và trực quan hóa kết quả dự đoán.
+The application expects the following files inside the `checkpoints/` directory:
+
+| Model | Checkpoint |
+|---|---|
+| U-Net | `e1_unet_best.pt` |
+| Attention U-Net | `e2_attention_unet_best.pt` |
+| Attention Multi-scale U-Net | `e3_attention_multiscale_best.pt` |
+| ResNet18 Multi-task | `e4_resnet18_multitask_best.pt` |
+
+If the checkpoints are not included in the repository, obtain them from the project owner and place them in the expected directory.
+
+**Important:** The application cannot run predictions for a model whose checkpoint is missing.
+
+Verify the files:
+
+```bash
+ls checkpoints
+```
+
+## Run the Application
+
+From the project root, with the virtual environment activated, execute:
+
+```bash
+python -m streamlit run app.py
+```
+
+Do not use `python app.py` to launch the Streamlit interface.
+
+When the server starts, Streamlit will display a local URL, usually:
+
+```text
+http://localhost:8501
+```
+
+Open this address in your web browser.
+
+Keep the terminal running while using the application. Press `Ctrl+C` in the terminal to stop the server.
+
+## How to Use
+
+1. Open the application in your browser.
+2. Select a model from the sidebar.
+3. Upload a chest X-ray image in PNG, JPG, JPEG, or BMP format.
+4. Click **Predict**.
+5. View the input image, predicted probability map, and segmentation overlay.
+6. Download the predicted segmentation mask as a PNG file.
+7. Review the classification probability if the selected model provides classification output.
+
+## Prediction Pipeline
+
+The application follows this workflow:
+
+1. Load the selected model checkpoint.
+2. Convert the input image to grayscale.
+3. Resize the image to `256 × 256` pixels.
+4. Normalize pixel values to the range `[0, 1]`.
+5. Run inference using PyTorch.
+6. Apply sigmoid to the segmentation logits.
+7. Apply the model's saved threshold, or `0.5` if no threshold is available.
+8. Generate the segmentation mask and visualization.
+
+**Note:** The preprocessing used during inference must match the preprocessing used during training. The current pipeline assumes that all four models accept a single-channel grayscale input of size `256 × 256`.
+
+## Hardware
+
+The application uses Apple's MPS backend when available; otherwise, it falls back to CPU.
+
+On other systems, GPU support depends on the installed PyTorch build and the device-selection logic in `app.py`.
+
+## Troubleshooting
+
+### Checkpoint not found
+
+Ensure the required `.pt` file exists in the `checkpoints/` directory and that its filename matches the configuration in `app.py`.
+
+### ModuleNotFoundError
+
+Activate the correct virtual environment and install the missing dependency. Check whether the model implementation requires additional packages.
+
+### Streamlit ScriptRunContext warnings
+
+Launch the application using:
+
+```bash
+python -m streamlit run app.py
+```
+
+Running `python app.py` directly does not start Streamlit correctly.
+
+### Prediction errors
+
+Check that the checkpoint matches the selected model architecture. Confirm that the output structure and input dimensions are compatible with the inference code.
+
+### Port already in use
+
+Run the application on another port:
+
+```bash
+python -m streamlit run app.py --server.port 8502
+```
+
+Then open:
+
+```text
+http://localhost:8502
+```
+
+## Limitations
+
+- Predictions depend on the quality and distribution of the training data.
+- The preprocessing pipeline must be consistent with training.
+- Segmentation masks and classification probabilities are model outputs, not confirmed clinical findings.
+- Model checkpoints and datasets may need to be downloaded separately.
+
+## License
+
+Add the license applicable to this project before distributing or publishing the repository.
