@@ -20,7 +20,7 @@ A deep learning project for pneumothorax segmentation from chest X-ray images us
 (`tune_kaggle.py`: TTA lật ngang, ngưỡng pixel 0,65, ngưỡng phân loại 0,85, bỏ vùng < 256 pixel) đạt **0,800**,
 vượt U-Net gốc (0,795, Frontiers in Radiology 2024) và mốc đoán toàn "không bệnh" (0,777); top Kaggle ~0,84–0,87.
 
-Chi tiết: `results/final_summary.md`, `results/k_e4/kaggle_summary.json`. Báo cáo và slide: thư mục `docs/`.
+Chi tiết: `results/final_summary.md`, `results/k_e4/kaggle_summary.json`.
 Checkpoint (.pt) không có trong repo vì nặng – tải từ Output của notebook Kaggle và đặt vào `checkpoints/`.
 
 ## Features

@@ -47,6 +47,7 @@ def resolve_thresholds(checkpoint: dict, experiment: str | None = None,
                     checkpoint.get("tuned_cls_threshold", checkpoint.get("cls_threshold")))
     min_px = entry.get("min_pred_pixels", checkpoint.get("min_pred_pixels", DEFAULT_MIN_PRED_PIXELS))
     return {
+        "tta": bool(entry.get("tta_hflip", False)),
         "seg_threshold": float(seg),
         "cls_threshold": None if cls is None else float(cls),
         "min_pred_pixels": int(min_px),
@@ -85,14 +86,23 @@ class Prediction:
 @torch.inference_mode()
 def predict_tensor(model, tensor: torch.Tensor, seg_threshold: float,
                    cls_threshold: float | None = None,
-                   min_pred_pixels: int = DEFAULT_MIN_PRED_PIXELS) -> Prediction:
+                   min_pred_pixels: int = DEFAULT_MIN_PRED_PIXELS, tta: bool = False) -> Prediction:
+    """tta=True averages the prediction with a horizontally flipped copy (as in tune_kaggle.py)."""
     device = next(model.parameters()).device
-    outputs = model(tensor.to(device))
-    probs = torch.sigmoid(segmentation_logits(outputs))[0, 0].float().cpu().numpy()
+    views = [tensor, torch.flip(tensor, dims=[3])] if tta else [tensor]
+    prob_sum, cls_sum, has_cls = 0, 0.0, False
+    for k, view in enumerate(views):
+        outputs = model(view.to(device))
+        p = torch.sigmoid(segmentation_logits(outputs))
+        prob_sum = prob_sum + (torch.flip(p, dims=[3]) if k == 1 else p)
+        if isinstance(outputs, dict) and "classification_logits" in outputs:
+            has_cls = True
+            cls_sum += float(torch.sigmoid(outputs["classification_logits"].reshape(-1)[0]))
+    probs = (prob_sum / len(views))[0, 0].float().cpu().numpy()
     mask = probs >= seg_threshold
     cls_probability = None
-    if isinstance(outputs, dict) and "classification_logits" in outputs:
-        cls_probability = float(torch.sigmoid(outputs["classification_logits"].reshape(-1)[0]))
+    if has_cls:
+        cls_probability = cls_sum / len(views)
         if cls_threshold is not None and cls_probability < cls_threshold:
             mask = np.zeros_like(mask)
     pixels = int(mask.sum())

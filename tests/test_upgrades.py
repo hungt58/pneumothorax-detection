@@ -110,3 +110,14 @@ def test_resnet34_multitask_builds_and_runs():
     assert out["segmentation_logits"].shape == (1, 1, 64, 64)
     assert out["classification_logits"].shape == (1, 1)
     assert experiment_name("resnet34_multitask", 512) == "e5_resnet34_multitask_512"
+
+
+def test_tta_flag_and_kaggle_mode_config():
+    model = build_model("resnet18_multitask", pretrained=False, fusion_channels=8).eval()
+    x = torch.randn(1, 1, 64, 64)
+    a = predict_tensor(model, x, 0.5, None, 1, tta=False)
+    b = predict_tensor(model, x, 0.5, None, 1, tta=True)
+    assert a.probabilities.shape == b.probabilities.shape == (64, 64)
+    thr = resolve_thresholds({"threshold": 0.5}, "k_e4",
+                             {"k_e4": {"seg_threshold": 0.65, "cls_threshold": 0.85, "min_pred_pixels": 256, "tta_hflip": True}})
+    assert thr["tta"] and thr["min_pred_pixels"] == 256

@@ -25,3 +25,16 @@ env/
 *.pth
 *.pt
 *.h5
+
+# Báo cáo, slide, ảnh minh họa – không đưa vào kho mã
+docs/
+output/
+predictions/
+results/**/*.png
+*.docx
+*.pptx
+*.xlsx
+*.pdf
+*.drawio
+*.zip
+*.bat
