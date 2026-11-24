@@ -61,7 +61,7 @@ def main():
     )
     print("Visualization uses VALIDATION only; test set untouched.")
 
-    if ckpt.get("model_name") == "resnet18_multitask" and a.cls_threshold is None:
+    if ckpt.get("model_name") in ("resnet18_multitask", "resnet34_multitask") and a.cls_threshold is None:
         raise ValueError("E4 visualization requires --cls-threshold")
     model = load_model_from_checkpoint(ckpt).to(device)
     model.eval()
@@ -125,7 +125,7 @@ def main():
     if a.output_dir is None:
         experiment = {"unet": "unet", "attention_unet": "e2_attention_unet",
                       "attention_multiscale_unet": "e3_attention_multiscale",
-                      "resnet18_multitask": "e4_resnet18_multitask"}[ckpt.get("model_name", "unet")]
+                      "resnet18_multitask": "e4_resnet18_multitask", "resnet34_multitask": "e5_resnet34_multitask"}[ckpt.get("model_name", "unet")]
         a.output_dir = Path(f"results/{experiment}/visualizations")
     a.output_dir.mkdir(parents=True, exist_ok=True)
 

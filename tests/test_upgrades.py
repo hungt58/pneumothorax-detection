@@ -100,3 +100,13 @@ def test_leakage_finds_exact_and_near_copies(tmp_path):
     info = patient_overlap({"train": [{"ImageId": "x"}], "val": [{"ImageId": "y"}], "test": []},
                            {"x": "p1", "y": "p1"})
     assert info["shared_patients"] == 1
+
+
+def test_resnet34_multitask_builds_and_runs():
+    import torch
+    from models.factory import build_model, experiment_name
+    model = build_model("resnet34_multitask", pretrained=False, fusion_channels=8).eval()
+    out = model(torch.zeros(1, 1, 64, 64))
+    assert out["segmentation_logits"].shape == (1, 1, 64, 64)
+    assert out["classification_logits"].shape == (1, 1)
+    assert experiment_name("resnet34_multitask", 512) == "e5_resnet34_multitask_512"

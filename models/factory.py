@@ -5,12 +5,14 @@ import torch
 from .unet import UNet
 from .attention_unet import AttentionUNet
 from .attention_multiscale_unet import AttentionMultiScaleUNet
-from .resnet18_multitask import ResNet18MultiTask, ResNet18Segmentation
+from .resnet18_multitask import ResNet18MultiTask, ResNet18Segmentation, ResNet34MultiTask
 
-MODEL_NAMES = ("unet", "attention_unet", "attention_multiscale_unet", "resnet18_multitask", "resnet18_seg")
+MODEL_NAMES = ("unet", "attention_unet", "attention_multiscale_unet", "resnet18_multitask", "resnet18_seg",
+               "resnet34_multitask")
 MODEL_CLASSES = dict(zip(MODEL_NAMES, (UNet, AttentionUNet, AttentionMultiScaleUNet,
-                                       ResNet18MultiTask, ResNet18Segmentation)))
-RESNET_MODELS = ("resnet18_multitask", "resnet18_seg")
+                                       ResNet18MultiTask, ResNet18Segmentation, ResNet34MultiTask)))
+RESNET_MODELS = ("resnet18_multitask", "resnet18_seg", "resnet34_multitask")
+MULTITASK_MODELS = ("resnet18_multitask", "resnet34_multitask")
 
 EXPERIMENT_NAMES = {
     "unet": "e1_unet",
@@ -18,6 +20,7 @@ EXPERIMENT_NAMES = {
     "attention_multiscale_unet": "e3_attention_multiscale",
     "resnet18_multitask": "e4_resnet18_multitask",
     "resnet18_seg": "e4b_resnet18_seg",
+    "resnet34_multitask": "e5_resnet34_multitask",
 }
 
 

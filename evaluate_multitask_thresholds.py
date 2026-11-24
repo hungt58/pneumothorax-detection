@@ -36,7 +36,7 @@ def main():
         raise ValueError("--min-pred-pixels must be at least 1")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(a.checkpoint, map_location=device, weights_only=False)
-    if checkpoint.get("model_name") != "resnet18_multitask":
+    if checkpoint.get("model_name") not in ("resnet18_multitask", "resnet34_multitask"):
         raise ValueError("This evaluator is only for resnet18_multitask")
     model = load_model_from_checkpoint(checkpoint).to(device).eval()
     records = build_file_list(str(a.images), str(a.masks))

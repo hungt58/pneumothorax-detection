@@ -44,7 +44,7 @@ def main():
     print("Device:", device)
 
     ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
-    if ckpt.get("model_name") == "resnet18_multitask":
+    if ckpt.get("model_name") in ("resnet18_multitask", "resnet34_multitask"):
         raise ValueError("E4 needs --cls-threshold; use evaluate_multitask_thresholds.py --split test")
     image_size = int(ckpt.get("image_size", 256))
     records = build_file_list(str(a.images), str(a.masks))

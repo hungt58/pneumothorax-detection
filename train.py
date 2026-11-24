@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from build_dataset import build_dataloaders, build_file_list, split_data
 from losses import MultiTaskLoss, SegmentationLoss
-from models.factory import MODEL_NAMES, RESNET_MODELS, build_model, experiment_name
+from models.factory import MODEL_NAMES, MULTITASK_MODELS, RESNET_MODELS, build_model, experiment_name
 from evaluation import final_mask
 
 
@@ -37,6 +37,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--checkpoint", type=Path)
     p.add_argument("--history", type=Path)
     p.add_argument("--patience", type=int, default=7)
+    p.add_argument("--amp", action="store_true", help="mixed precision on CUDA (faster, less memory)")
+    p.add_argument("--select-metric", choices=("selection_score", "kaggle_score"), default="selection_score",
+                   help="validation metric used for checkpoint selection / LR schedule / early stopping")
     return p.parse_args()
 
 
@@ -48,7 +51,7 @@ def set_seed(seed: int = 42) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device, max_batches, epoch):
+def train_one_epoch(model, loader, criterion, optimizer, device, max_batches, epoch, scaler=None):
     model.train()
     if hasattr(loader.batch_sampler, "set_epoch"):
         loader.batch_sampler.set_epoch(epoch)
@@ -60,10 +63,16 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches, ep
         masks = batch["mask"].to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
-        outputs = model(images)
-        loss = criterion(outputs, masks, batch["label"].to(device)) if isinstance(outputs, dict) else criterion(outputs, masks)
-        loss.backward()
-        optimizer.step()
+        with torch.autocast(device.type, enabled=scaler is not None):
+            outputs = model(images)
+            loss = criterion(outputs, masks, batch["label"].to(device)) if isinstance(outputs, dict) else criterion(outputs, masks)
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         total_loss += loss.item()
         batches += 1
@@ -76,18 +85,24 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_batches, ep
 
 
 @torch.inference_mode()
-def validate(model, loader, criterion, device, threshold, min_pred_pixels, max_batches, cls_threshold=0.5):
+def validate(model, loader, criterion, device, threshold, min_pred_pixels, max_batches, cls_threshold=0.5, amp=False):
     model.eval()
     total_loss = 0.0
     batch_count = sample_count = 0
     positive_count = negative_count = 0
     positive_dice_sum = positive_iou_sum = 0.0
     tp_img = fp_img = tn_img = fn_img = 0
+    kaggle_sum = 0.0
 
     for step, batch in enumerate(loader, start=1):
         images = batch["image"].to(device, non_blocking=True)
         masks = batch["mask"].to(device, non_blocking=True)
-        outputs = model(images)
+        with torch.autocast(device.type, enabled=amp):
+            outputs = model(images)
+        if isinstance(outputs, dict):
+            outputs = {k: v.float() for k, v in outputs.items()}
+        else:
+            outputs = outputs.float()
         total_loss += (criterion(outputs, masks, batch["label"].to(device)) if isinstance(outputs, dict)
                        else criterion(outputs, masks)).item()
         batch_count += 1
@@ -105,6 +120,12 @@ def validate(model, loader, criterion, device, threshold, min_pred_pixels, max_b
         dice = (2 * intersection + 1.0) / (denom + 1.0)
         union = pred_pixels + target_pixels - intersection
         iou = (intersection + 1.0) / (union + 1.0)
+
+        # Kaggle SIIM metric: empty prediction on an empty mask = 1; masks below
+        # min_pred_pixels are treated as empty (removed) before scoring.
+        kept = predicted_positive
+        k_dice = torch.where(kept, 2 * intersection / (denom + 1e-8), (~target_positive).float())
+        kaggle_sum += k_dice.sum().item()
 
         if target_positive.any():
             positive_dice_sum += dice[target_positive].sum().item()
@@ -144,13 +165,14 @@ def validate(model, loader, criterion, device, threshold, min_pred_pixels, max_b
         "false_positive_rate": fp_rate,
         "predicted_positive_rate": pred_positive_rate,
         "selection_score": selection_score,
+        "kaggle_score": kaggle_sum / max(sample_count, 1),
     }
 
 
 HISTORY_COLUMNS = [
     "epoch", "train_loss", "val_loss", "val_dice_positive", "val_iou_positive",
     "image_sensitivity", "image_specificity", "false_positive_rate",
-    "predicted_positive_rate", "selection_score", "learning_rate",
+    "predicted_positive_rate", "selection_score", "kaggle_score", "learning_rate",
 ]
 
 
@@ -206,7 +228,7 @@ def main() -> None:
     print(f"Experiment: {experiment} | input {args.image_size}x{args.image_size}")
     print(f"Balanced TRAIN batches: {args.batch_size//2} positive + {args.batch_size//2} negative")
     loss_description = "BCEWithLogits(all images) + PositiveDice(positive masks only)"
-    if args.model == "resnet18_multitask":
+    if args.model in MULTITASK_MODELS:
         loss_description += " + BCEWithLogits(image classification)"
     print(f"Loss: {loss_description}")
 
@@ -214,11 +236,15 @@ def main() -> None:
                     if args.model in RESNET_MODELS else
                     {"in_channels": 1, "out_channels": 1, "features": (32, 64, 128, 256)})
     model = build_model(args.model, **model_kwargs).to(device)
-    criterion = (MultiTaskLoss() if args.model == "resnet18_multitask" else
+    criterion = (MultiTaskLoss() if args.model in MULTITASK_MODELS else
                  SegmentationLoss(bce_weight=1.0, dice_weight=1.0)).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.5, patience=3, min_lr=1e-6)
 
+    use_amp = bool(args.amp and device.type == "cuda")
+    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    sel = args.select_metric
+    print(f"AMP: {use_amp} | checkpoint selection by: {sel}")
     best_score = float("-inf")
     epochs_without_improvement = 0
     initialize_history(args.history)
@@ -227,13 +253,13 @@ def main() -> None:
         print(f"Epoch {epoch}/{args.epochs}")
         train_loss = train_one_epoch(
             model, train_loader, criterion, optimizer, device,
-            args.max_train_batches, epoch,
+            args.max_train_batches, epoch, scaler,
         )
         metrics = validate(
             model, val_loader, criterion, device,
-            args.threshold, args.min_pred_pixels, args.max_val_batches, args.cls_threshold,
+            args.threshold, args.min_pred_pixels, args.max_val_batches, args.cls_threshold, use_amp,
         )
-        scheduler.step(metrics["selection_score"])
+        scheduler.step(metrics[sel])
         lr = optimizer.param_groups[0]["lr"]
 
         row = {"epoch": epoch, "train_loss": train_loss, **metrics, "learning_rate": lr}
@@ -243,11 +269,11 @@ def main() -> None:
             f"Dice+ {metrics['val_dice_positive']:.4f} | IoU+ {metrics['val_iou_positive']:.4f} | "
             f"sens {metrics['image_sensitivity']:.4f} | spec {metrics['image_specificity']:.4f} | "
             f"FPR {metrics['false_positive_rate']:.4f} | pred+ {metrics['predicted_positive_rate']:.4f} | "
-            f"score {metrics['selection_score']:.4f} | lr {lr:.2e}"
+            f"score {metrics['selection_score']:.4f} | kaggle {metrics['kaggle_score']:.4f} | lr {lr:.2e}"
         )
 
-        if metrics["selection_score"] > best_score:
-            best_score = metrics["selection_score"]
+        if metrics[sel] > best_score:
+            best_score = metrics[sel]
             epochs_without_improvement = 0
             args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
             torch.save(
@@ -262,7 +288,8 @@ def main() -> None:
                     "image_size": args.image_size,
                     "experiment": experiment,
                     "threshold": args.threshold,
-                    "cls_threshold": args.cls_threshold if args.model == "resnet18_multitask" else None,
+                    "cls_threshold": args.cls_threshold if args.model in MULTITASK_MODELS else None,
+                    "select_metric": sel,
                     "min_pred_pixels": args.min_pred_pixels,
                     "balanced_train": True,
                     "loss": "BCE + positive-only Dice",
@@ -273,7 +300,7 @@ def main() -> None:
             print(f"  Saved checkpoint: {args.checkpoint}")
         else:
             epochs_without_improvement += 1
-            print(f"  No selection_score improvement for {epochs_without_improvement}/{args.patience} epoch(s)")
+            print(f"  No {sel} improvement for {epochs_without_improvement}/{args.patience} epoch(s)")
             if epochs_without_improvement >= args.patience:
                 print(f"Early stopping at epoch {epoch}")
                 break

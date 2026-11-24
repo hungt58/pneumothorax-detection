@@ -2,7 +2,10 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.models import ResNet18_Weights, resnet18
+from torchvision.models import ResNet18_Weights, ResNet34_Weights, resnet18, resnet34
+
+# names resolved at call time so tests can monkeypatch resnet18/resnet34
+ENCODERS = {"resnet18": ("resnet18", ResNet18_Weights), "resnet34": ("resnet34", ResNet34_Weights)}
 
 from .attention_blocks import AttentionUpBlock
 from .multiscale import MultiScaleContextFusion
@@ -11,14 +14,17 @@ from .multiscale import MultiScaleContextFusion
 class ResNet18MultiTask(nn.Module):
     def __init__(self, in_channels: int = 1, out_channels: int = 1,
                  fusion_channels: int = 64, pretrained: bool = True,
-                 with_classification: bool = True):
+                 with_classification: bool = True, encoder: str = "resnet18"):
         super().__init__()
+        if encoder not in ENCODERS:
+            raise ValueError(f"encoder must be one of {tuple(ENCODERS)}")
         self.with_classification = with_classification
         if in_channels != 1:
             raise ValueError("E4 requires grayscale input (in_channels=1)")
         if out_channels != 1:
             raise ValueError("E4 requires one segmentation logit channel")
-        backbone = resnet18(weights=ResNet18_Weights.DEFAULT if pretrained else None)
+        build_name, weights = ENCODERS[encoder]
+        backbone = globals()[build_name](weights=weights.DEFAULT if pretrained else None)
         original = backbone.conv1
         backbone.conv1 = nn.Conv2d(1, original.out_channels, original.kernel_size,
                                     original.stride, original.padding, bias=False)
@@ -70,3 +76,12 @@ class ResNet18Segmentation(ResNet18MultiTask):
         super().__init__(in_channels, out_channels, fusion_channels, pretrained,
                          with_classification=False)
 
+
+
+class ResNet34MultiTask(ResNet18MultiTask):
+    """E5: same E4 design with a deeper pretrained ResNet34 encoder (same channel widths)."""
+
+    def __init__(self, in_channels: int = 1, out_channels: int = 1,
+                 fusion_channels: int = 64, pretrained: bool = True):
+        super().__init__(in_channels, out_channels, fusion_channels, pretrained,
+                         with_classification=True, encoder="resnet34")

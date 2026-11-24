@@ -35,6 +35,7 @@ MODELS = {
     "E3 · Attention Multi-scale U-Net": "e3_attention_multiscale",
     "E4 · ResNet18 Multi-task": "e4_resnet18_multitask",
     "E4b · ResNet18 segmentation only": "e4b_resnet18_seg",
+    "E5 · ResNet34 Multi-task 512": "e5_resnet34_multitask_512",
 }
 CASCADE = "E2 + E4 · screen then confirm"
 
