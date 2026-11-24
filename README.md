@@ -4,6 +4,25 @@ A deep learning project for pneumothorax segmentation from chest X-ray images us
 
 > **Disclaimer:** This project is intended for research and educational purposes only. It is not a medical device and must not be used as a substitute for professional medical diagnosis.
 
+## Kết quả cuối kỳ (tập Test 1.602 ảnh, ngưỡng chọn trên Val, chấm Test 1 lần)
+
+| Mô hình | Dice+ | Độ nhạy | Đặc hiệu | Báo nhầm |
+|---|---|---|---|---|
+| E1 U-Net | 35,4% | 80,1% | 64,3% | 444 |
+| E2 Attention U-Net | 32,6% | 82,1% | 63,9% | 449 |
+| E3 Attention + đa tầng | 35,8% | 85,2% | 57,3% | 531 |
+| **E4 ResNet18 đa nhiệm** | 36,5% | 81,0% | **84,0%** | **199** |
+| E2 + E4 kết hợp | 33,0% | 81,5% | 81,2% | 234 |
+| E4b ResNet18 chỉ phân đoạn | 36,9% | 85,2% | 70,2% | 371 |
+| E2 @ 512 | **38,3%** | **89,1%** | 58,6% | 515 |
+
+**Benchmark (điểm Dice trên mọi ảnh, cách chấm của Kaggle SIIM-ACR):** E4 + hậu xử lý kiểu Kaggle
+(`tune_kaggle.py`: TTA lật ngang, ngưỡng pixel 0,65, ngưỡng phân loại 0,85, bỏ vùng < 256 pixel) đạt **0,800**,
+vượt U-Net gốc (0,795, Frontiers in Radiology 2024) và mốc đoán toàn "không bệnh" (0,777); top Kaggle ~0,84–0,87.
+
+Chi tiết: `results/final_summary.md`, `results/k_e4/kaggle_summary.json`. Báo cáo và slide: thư mục `docs/`.
+Checkpoint (.pt) không có trong repo vì nặng – tải từ Output của notebook Kaggle và đặt vào `checkpoints/`.
+
 ## Features
 
 - Upload chest X-ray images through a web interface.

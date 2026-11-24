@@ -1,0 +1,29 @@
+{
+  "key": "k_e4",
+  "image_size": 256,
+  "thresholds": {
+    "seg_threshold": 0.65,
+    "cls_threshold": 0.85,
+    "min_pred_pixels": 256,
+    "tta_hflip": true,
+    "metric": "kaggle"
+  },
+  "val": {
+    "kaggle_score": 0.8056,
+    "dice_positive": 0.2319,
+    "image_sensitivity": 0.4986,
+    "image_specificity": 0.9703
+  },
+  "test": {
+    "kaggle_score": 0.8002,
+    "dice_positive": 0.2126,
+    "image_sensitivity": 0.4342,
+    "image_specificity": 0.9687,
+    "tp": 155,
+    "fn": 202,
+    "fp": 39,
+    "tn": 1206,
+    "all_empty_baseline": 0.7772
+  },
+  "note": "E4 checkpoint, TTA hflip, thresholds tuned on VAL for the Kaggle SIIM metric, TEST scored once (Kaggle CPU run 24/11/2026)"
+}

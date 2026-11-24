@@ -31,5 +31,13 @@
   "e2_attention_unet_512": {
     "seg_threshold": 0.97,
     "min_pred_pixels": 64
+  },
+  "k_e4": {
+    "seg_threshold": 0.65,
+    "cls_threshold": 0.85,
+    "min_pred_pixels": 256,
+    "tta_hflip": true,
+    "metric": "kaggle",
+    "image_size": 256
   }
 }

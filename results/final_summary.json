@@ -1,141 +1,229 @@
 {
- "models": [
-  {
-   "key": "e1_unet",
-   "name": "E1 U-Net",
-   "image_size": 256,
-   "thresholds": {
-    "seg_threshold": 0.97
-   },
-   "test": {
-    "dice_positive": 0.3543,
-    "iou_positive": 0.2646,
-    "image_sensitivity": 0.8011204481792717,
-    "image_specificity": 0.6433734939759036,
-    "selection_score": 0.4569575723762151,
-    "tp": 286,
-    "fn": 71,
-    "fp": 444,
-    "tn": 801
-   }
+  "models": [
+    {
+      "key": "e1_unet",
+      "name": "E1 U-Net",
+      "image_size": 256,
+      "thresholds": {
+        "seg_threshold": 0.97
+      },
+      "test": {
+        "dice_positive": 0.3543,
+        "iou_positive": 0.2646,
+        "image_sensitivity": 0.8011204481792717,
+        "image_specificity": 0.6433734939759036,
+        "selection_score": 0.4569575723762151,
+        "tp": 286,
+        "fn": 71,
+        "fp": 444,
+        "tn": 801
+      }
+    },
+    {
+      "key": "e2_attention_unet",
+      "name": "E2 Attention U-Net",
+      "image_size": 256,
+      "thresholds": {
+        "seg_threshold": 0.95
+      },
+      "test": {
+        "dice_positive": 0.3259,
+        "iou_positive": 0.2372,
+        "image_sensitivity": 0.8207282913165266,
+        "image_specificity": 0.6393574297188755,
+        "selection_score": 0.4317326755124109,
+        "tp": 293,
+        "fn": 64,
+        "fp": 449,
+        "tn": 796
+      }
+    },
+    {
+      "key": "e3_attention_multiscale",
+      "name": "E3 Attention + Multi-scale",
+      "image_size": 256,
+      "thresholds": {
+        "seg_threshold": 0.96
+      },
+      "test": {
+        "dice_positive": 0.3576,
+        "iou_positive": 0.2643,
+        "image_sensitivity": 0.8515406162464986,
+        "image_specificity": 0.5734939759036145,
+        "selection_score": 0.44051717891119135,
+        "tp": 304,
+        "fn": 53,
+        "fp": 531,
+        "tn": 714
+      }
+    },
+    {
+      "key": "e4_resnet18_multitask",
+      "name": "E4 ResNet18 multi-task",
+      "image_size": 256,
+      "thresholds": {
+        "seg_threshold": 0.3,
+        "cls_threshold": 0.3
+      },
+      "test": {
+        "dice_positive": 0.3649,
+        "iou_positive": 0.2745,
+        "image_sensitivity": 0.8095238095238095,
+        "image_specificity": 0.8401606425702811,
+        "selection_score": 0.5088119346757533,
+        "tp": 289,
+        "fn": 68,
+        "fp": 199,
+        "tn": 1046
+      }
+    },
+    {
+      "key": "cascade_e2_e4",
+      "name": "E2 + E4 cascade",
+      "image_size": 256,
+      "thresholds": {
+        "e2_seg_threshold": 0.5,
+        "e4_cls_threshold": 0.15
+      },
+      "test": {
+        "dice_positive": 0.3297,
+        "iou_positive": 0.2415,
+        "image_sensitivity": 0.8151260504201681,
+        "image_specificity": 0.8120481927710843,
+        "selection_score": 0.46898657839225627,
+        "tp": 291,
+        "fn": 66,
+        "fp": 234,
+        "tn": 1011
+      }
+    },
+    {
+      "key": "e4b_resnet18_seg",
+      "name": "E4b ResNet18 seg-only",
+      "image_size": 256,
+      "thresholds": {
+        "seg_threshold": 0.86
+      },
+      "test": {
+        "dice_positive": 0.3693,
+        "iou_positive": 0.2739,
+        "image_sensitivity": 0.8515406162464986,
+        "image_specificity": 0.702008032128514,
+        "selection_score": 0.48399070760249924,
+        "tp": 304,
+        "fn": 53,
+        "fp": 371,
+        "tn": 874
+      }
+    },
+    {
+      "key": "e2_attention_unet_512",
+      "name": "E2 Attention U-Net @512",
+      "image_size": 512,
+      "thresholds": {
+        "seg_threshold": 0.97
+      },
+      "test": {
+        "dice_positive": 0.3832,
+        "iou_positive": 0.2865,
+        "image_sensitivity": 0.8907563025210085,
+        "image_specificity": 0.5863453815261044,
+        "selection_score": 0.463490527585487,
+        "tp": 318,
+        "fn": 39,
+        "fp": 515,
+        "tn": 730
+      }
+    }
+  ],
+  "leakage": "train-val: exact copies 0 | near copies (dHash<= 4) 57991 | val images affected 1126/1601\ntrain-test: exact copies 0 | near copies (dHash<= 4) 59313 | test images affected 1117/1602\npatients: no patient ids given (PNG release) - duplicate-image check only\nVERDICT: no exact copies across splits; review near copies in duplicates.csv",
+  "errors": [],
+  "kaggle_eval": {
+    "k_e4": {
+      "name": "E4 + hậu xử lý kiểu Kaggle",
+      "thresholds": {
+        "seg_threshold": 0.65,
+        "cls_threshold": 0.85,
+        "min_pred_pixels": 256,
+        "tta_hflip": true
+      },
+      "val": {
+        "kaggle_score": 0.8056,
+        "dice_positive": 0.2319,
+        "image_sensitivity": 0.4986,
+        "image_specificity": 0.9703
+      },
+      "test": {
+        "kaggle_score": 0.8002,
+        "dice_positive": 0.2126,
+        "image_sensitivity": 0.4342,
+        "image_specificity": 0.9687,
+        "tp": 155,
+        "fn": 202,
+        "fp": 39,
+        "tn": 1206,
+        "all_empty_baseline": 0.7772
+      }
+    },
+    "k_e2_512": {
+      "name": "E2@512 + hậu xử lý kiểu Kaggle",
+      "val": {
+        "kaggle_score": 0.7873,
+        "image_sensitivity": 0.465,
+        "image_specificity": 0.9445
+      }
+    }
   },
-  {
-   "key": "e2_attention_unet",
-   "name": "E2 Attention U-Net",
-   "image_size": 256,
-   "thresholds": {
-    "seg_threshold": 0.95
-   },
-   "test": {
-    "dice_positive": 0.3259,
-    "iou_positive": 0.2372,
-    "image_sensitivity": 0.8207282913165266,
-    "image_specificity": 0.6393574297188755,
-    "selection_score": 0.4317326755124109,
-    "tp": 293,
-    "fn": 64,
-    "fp": 449,
-    "tn": 796
-   }
-  },
-  {
-   "key": "e3_attention_multiscale",
-   "name": "E3 Attention + Multi-scale",
-   "image_size": 256,
-   "thresholds": {
-    "seg_threshold": 0.96
-   },
-   "test": {
-    "dice_positive": 0.3576,
-    "iou_positive": 0.2643,
-    "image_sensitivity": 0.8515406162464986,
-    "image_specificity": 0.5734939759036145,
-    "selection_score": 0.44051717891119135,
-    "tp": 304,
-    "fn": 53,
-    "fp": 531,
-    "tn": 714
-   }
-  },
-  {
-   "key": "e4_resnet18_multitask",
-   "name": "E4 ResNet18 multi-task",
-   "image_size": 256,
-   "thresholds": {
-    "seg_threshold": 0.3,
-    "cls_threshold": 0.3
-   },
-   "test": {
-    "dice_positive": 0.3649,
-    "iou_positive": 0.2745,
-    "image_sensitivity": 0.8095238095238095,
-    "image_specificity": 0.8401606425702811,
-    "selection_score": 0.5088119346757533,
-    "tp": 289,
-    "fn": 68,
-    "fp": 199,
-    "tn": 1046
-   }
-  },
-  {
-   "key": "cascade_e2_e4",
-   "name": "E2 + E4 cascade",
-   "image_size": 256,
-   "thresholds": {
-    "e2_seg_threshold": 0.5,
-    "e4_cls_threshold": 0.15
-   },
-   "test": {
-    "dice_positive": 0.3297,
-    "iou_positive": 0.2415,
-    "image_sensitivity": 0.8151260504201681,
-    "image_specificity": 0.8120481927710843,
-    "selection_score": 0.46898657839225627,
-    "tp": 291,
-    "fn": 66,
-    "fp": 234,
-    "tn": 1011
-   }
-  },
-  {
-   "key": "e4b_resnet18_seg",
-   "name": "E4b ResNet18 seg-only",
-   "image_size": 256,
-   "thresholds": {
-    "seg_threshold": 0.86
-   },
-   "test": {
-    "dice_positive": 0.3693,
-    "iou_positive": 0.2739,
-    "image_sensitivity": 0.8515406162464986,
-    "image_specificity": 0.702008032128514,
-    "selection_score": 0.48399070760249924,
-    "tp": 304,
-    "fn": 53,
-    "fp": 371,
-    "tn": 874
-   }
-  },
-  {
-   "key": "e2_attention_unet_512",
-   "name": "E2 Attention U-Net @512",
-   "image_size": 512,
-   "thresholds": {
-    "seg_threshold": 0.97
-   },
-   "test": {
-    "dice_positive": 0.3832,
-    "iou_positive": 0.2865,
-    "image_sensitivity": 0.8907563025210085,
-    "image_specificity": 0.5863453815261044,
-    "selection_score": 0.463490527585487,
-    "tp": 318,
-    "fn": 39,
-    "fp": 515,
-    "tn": 730
-   }
+  "benchmarks": {
+    "kaggle": [
+      [
+        "P-DeSeRay (Frontiers 2024)",
+        0.867
+      ],
+      [
+        "Top 100 Kaggle SIIM-ACR",
+        0.842
+      ],
+      [
+        "U-Net gốc (Frontiers 2024)",
+        0.795
+      ],
+      [
+        "Đoán toàn \"không bệnh\" (Test của nhóm)",
+        0.777
+      ]
+    ],
+    "cls": [
+      [
+        "U-Net gốc",
+        0.659,
+        0.919
+      ],
+      [
+        "U-Net + SE",
+        0.69,
+        0.909
+      ],
+      [
+        "U-Net + ResNeXt",
+        0.645,
+        0.97
+      ],
+      [
+        "U-Net + focal loss",
+        0.659,
+        0.966
+      ],
+      [
+        "Hongyu et al. 2020",
+        0.78,
+        0.78
+      ],
+      [
+        "P-DeSeRay",
+        0.714,
+        0.963
+      ]
+    ]
   }
- ],
- "leakage": "train-val: exact copies 0 | near copies (dHash<= 4) 57991 | val images affected 1126/1601\ntrain-test: exact copies 0 | near copies (dHash<= 4) 59313 | test images affected 1117/1602\npatients: no patient ids given (PNG release) - duplicate-image check only\nVERDICT: no exact copies across splits; review near copies in duplicates.csv",
- "errors": []
 }
