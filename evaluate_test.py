@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from build_dataset import build_dataloaders, build_file_list, split_data
-from models.factory import load_model_from_checkpoint
+from models.factory import experiment_name, load_model_from_checkpoint
 from evaluation import final_mask
 
 
@@ -43,6 +43,10 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Device:", device)
 
+    ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
+    if ckpt.get("model_name") == "resnet18_multitask":
+        raise ValueError("E4 needs --cls-threshold; use evaluate_multitask_thresholds.py --split test")
+    image_size = int(ckpt.get("image_size", 256))
     records = build_file_list(str(a.images), str(a.masks))
     train_records, val_records, test_records = split_data(records)
     _, _, test_loader = build_dataloaders(
@@ -51,6 +55,7 @@ def main():
         num_workers=a.num_workers,
         balanced_train=True,
         seed=42,
+        image_size=image_size,
     )
 
     print(
@@ -58,9 +63,6 @@ def main():
         f"min_pred_pixels={a.min_pred_pixels}"
     )
 
-    ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
-    if ckpt.get("model_name") == "resnet18_multitask":
-        raise ValueError("E4 needs --cls-threshold; use evaluate_multitask_thresholds.py --split test")
     model = load_model_from_checkpoint(ckpt).to(device)
     model.eval()
 
@@ -121,8 +123,7 @@ def main():
             print(f"{k}: {v}")
 
     if a.output is None:
-        experiment = {"unet": "unet", "attention_unet": "e2_attention_unet",
-                      "attention_multiscale_unet": "e3_attention_multiscale"}[ckpt.get("model_name", "unet")]
+        experiment = ckpt.get("experiment") or experiment_name(ckpt.get("model_name", "unet"), image_size)
         a.output = Path(f"results/{experiment}/final_test_metrics.csv")
     a.output.parent.mkdir(parents=True, exist_ok=True)
     with a.output.open("w", newline="", encoding="utf-8") as f:

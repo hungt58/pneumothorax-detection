@@ -1,10 +1,10 @@
 import torch
-from models.factory import build_model, load_model_from_checkpoint, MODEL_NAMES
+from models.factory import build_model, load_model_from_checkpoint, MODEL_NAMES, RESNET_MODELS
 
 
 def test_factory_and_legacy_checkpoint():
     for name in MODEL_NAMES:
-        kwargs = {"pretrained": False, "fusion_channels": 8} if name == "resnet18_multitask" else {"features": (4, 8)}
+        kwargs = {"pretrained": False, "fusion_channels": 8} if name in RESNET_MODELS else {"features": (4, 8)}
         assert build_model(name, **kwargs) is not None
     model = build_model("unet", features=(4, 8))
     legacy = {"features": (4, 8), "model_state_dict": model.state_dict()}

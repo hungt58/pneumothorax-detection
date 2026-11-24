@@ -10,8 +10,10 @@ from .multiscale import MultiScaleContextFusion
 
 class ResNet18MultiTask(nn.Module):
     def __init__(self, in_channels: int = 1, out_channels: int = 1,
-                 fusion_channels: int = 64, pretrained: bool = True):
+                 fusion_channels: int = 64, pretrained: bool = True,
+                 with_classification: bool = True):
         super().__init__()
+        self.with_classification = with_classification
         if in_channels != 1:
             raise ValueError("E4 requires grayscale input (in_channels=1)")
         if out_channels != 1:
@@ -35,10 +37,11 @@ class ResNet18MultiTask(nn.Module):
             AttentionUpBlock(64, 64, 64),
         ))
         self.segmentation_head = nn.Conv2d(64, 1, 1)
-        self.classification_head = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Flatten(),
-                                                 nn.Dropout(), nn.Linear(512, 1))
+        self.classification_head = (nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Flatten(),
+                                                  nn.Dropout(), nn.Linear(512, 1))
+                                    if with_classification else None)
 
-    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(self, x: torch.Tensor):
         input_size = x.shape[-2:]
         stem = self.stem(x)
         l1 = self.layer1(self.pool(stem))
@@ -50,7 +53,20 @@ class ResNet18MultiTask(nn.Module):
         for up, skip in zip(self.decoder, (l3, l2, l1, stem)):
             seg = up(seg, skip)
         seg = F.interpolate(self.segmentation_head(seg), size=input_size, mode="bilinear", align_corners=False)
+        if not self.with_classification:
+            # E4b: same backbone/decoder, segmentation only (plain tensor like E1-E3).
+            return seg
         return {"segmentation_logits": seg, "classification_logits": self.classification_head(fused)}
 
     def count_parameters(self, trainable_only: bool = True) -> int:
         return sum(p.numel() for p in self.parameters() if not trainable_only or p.requires_grad)
+
+
+class ResNet18Segmentation(ResNet18MultiTask):
+    """E4b ablation: E4 without the classification head and gate."""
+
+    def __init__(self, in_channels: int = 1, out_channels: int = 1,
+                 fusion_channels: int = 64, pretrained: bool = True):
+        super().__init__(in_channels, out_channels, fusion_channels, pretrained,
+                         with_classification=False)
+

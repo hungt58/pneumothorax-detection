@@ -86,12 +86,12 @@ def split_data(
     return train_recs, val_recs, test_recs
 
 
-def get_transforms(mode: str = "train"):
+def get_transforms(mode: str = "train", image_size: int = IMG_SIZE):
     if mode == "train":
         # Deliberately mild. No synthetic noise in the clean baseline.
         return A.Compose(
             [
-                A.Resize(IMG_SIZE, IMG_SIZE),
+                A.Resize(image_size, image_size),
                 A.HorizontalFlip(p=0.5),
                 A.Rotate(limit=7, border_mode=cv2.BORDER_CONSTANT, p=0.3),
                 A.RandomBrightnessContrast(
@@ -109,7 +109,7 @@ def get_transforms(mode: str = "train"):
 
     return A.Compose(
         [
-            A.Resize(IMG_SIZE, IMG_SIZE),
+            A.Resize(image_size, image_size),
             A.Normalize(mean=(0.5,), std=(0.5,)),
             ToTensorV2(),
         ]
@@ -207,10 +207,11 @@ def build_dataloaders(
     num_workers: int = 2,
     balanced_train: bool = True,
     seed: int = RANDOM_SEED,
+    image_size: int = IMG_SIZE,
 ):
-    train_ds = PneumothoraxDataset(train_recs, transform=get_transforms("train"))
-    val_ds = PneumothoraxDataset(val_recs, transform=get_transforms("val"))
-    test_ds = PneumothoraxDataset(test_recs, transform=get_transforms("test"))
+    train_ds = PneumothoraxDataset(train_recs, transform=get_transforms("train", image_size))
+    val_ds = PneumothoraxDataset(val_recs, transform=get_transforms("val", image_size))
+    test_ds = PneumothoraxDataset(test_recs, transform=get_transforms("test", image_size))
 
     loader_kwargs = dict(num_workers=num_workers, pin_memory=torch.cuda.is_available())
 
@@ -230,13 +231,13 @@ def build_dataloaders(
     return train_loader, val_loader, test_loader
 
 
-def validate_batch(batch: dict) -> dict:
+def validate_batch(batch: dict, image_size: int = IMG_SIZE) -> dict:
     images, masks, labels = batch["image"], batch["mask"], batch["label"]
     if images.ndim != 4 or masks.ndim != 4:
         raise ValueError("images/masks must be [B,C,H,W]")
     if images.shape != masks.shape:
         raise ValueError(f"image/mask shapes differ: {images.shape} vs {masks.shape}")
-    if images.shape[1:] != (1, IMG_SIZE, IMG_SIZE):
+    if images.shape[1:] != (1, image_size, image_size):
         raise ValueError(f"unexpected spatial shape: {tuple(images.shape)}")
     if labels.shape != (images.shape[0], 1):
         raise ValueError(f"unexpected label shape: {tuple(labels.shape)}")

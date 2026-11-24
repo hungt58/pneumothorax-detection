@@ -1,0 +1,2 @@
+e2_threshold,e4_cls_threshold,min_pred_pixels,dice_positive,iou_positive,image_sensitivity,image_specificity,false_positive_rate,predicted_positive_rate,selection_score,tp,fn,fp,tn
+0.5,0.15,64,0.3297337771129875,0.24146546102037617,0.8151260504201681,0.8120481927710843,0.18795180722891566,0.32771535580524347,0.46902074567225416,291,66,234,1011

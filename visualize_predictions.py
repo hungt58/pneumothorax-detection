@@ -46,12 +46,14 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Device:", device)
 
+    ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
     records = build_file_list(str(a.images), str(a.masks))
     train_records, val_records, test_records = split_data(records)
     _, val_loader, _ = build_dataloaders(
         train_records, val_records, test_records,
         batch_size=a.batch_size,
         num_workers=a.num_workers,
+        image_size=int(ckpt.get("image_size", 256)),
     )
     print(
         f"Pairs: {len(records)} | train: {len(train_records)} | "
@@ -59,7 +61,6 @@ def main():
     )
     print("Visualization uses VALIDATION only; test set untouched.")
 
-    ckpt = torch.load(a.checkpoint, map_location=device, weights_only=False)
     if ckpt.get("model_name") == "resnet18_multitask" and a.cls_threshold is None:
         raise ValueError("E4 visualization requires --cls-threshold")
     model = load_model_from_checkpoint(ckpt).to(device)

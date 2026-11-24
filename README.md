@@ -106,6 +106,7 @@ The application expects the following files inside the `checkpoints/` directory:
 | Attention U-Net | `e2_attention_unet_best.pt` |
 | Attention Multi-scale U-Net | `e3_attention_multiscale_best.pt` |
 | ResNet18 Multi-task | `e4_resnet18_multitask_best.pt` |
+| ResNet18 segmentation only (E4b, optional) | `e4b_resnet18_seg_best.pt` |
 
 If the checkpoints are not included in the repository, obtain them from the project owner and place them in the expected directory.
 
@@ -146,21 +147,33 @@ Keep the terminal running while using the application. Press `Ctrl+C` in the ter
 5. View the input image, predicted probability map, and segmentation overlay.
 6. Download the predicted segmentation mask as a PNG file.
 7. Review the classification probability if the selected model provides classification output.
+8. Choose **E2 + E4 · screen then confirm** to combine the two models.
 
 ## Prediction Pipeline
 
-The application follows this workflow:
+The application (and `test.py`) uses `inference.py`, which mirrors training exactly:
 
-1. Load the selected model checkpoint.
-2. Convert the input image to grayscale.
-3. Resize the image to `256 × 256` pixels.
-4. Normalize pixel values to the range `[0, 1]`.
-5. Run inference using PyTorch.
-6. Apply sigmoid to the segmentation logits.
-7. Apply the model's saved threshold, or `0.5` if no threshold is available.
-8. Generate the segmentation mask and visualization.
+1. Load the selected checkpoint (its `image_size` is read from the checkpoint; default 256).
+2. Convert the input image to grayscale and resize it with the same interpolation as training.
+3. Normalize with mean 0.5 / std 0.5, i.e. pixel values in `[-1, 1]` (same as `build_dataset.py`).
+4. Run inference and apply sigmoid to the segmentation logits.
+5. Apply the model threshold from `configs/thresholds.json`. Treat checked-in values as provisional
+   until the matching validation tuning CSV is available; `run_final.py` writes the tuned values.
+6. For E4, clear the mask when the classification probability is below the gate.
+7. Call the image positive only if at least 64 pixels remain (same rule as the reported metrics).
 
-**Note:** The preprocessing used during inference must match the preprocessing used during training. The current pipeline assumes that all four models accept a single-channel grayscale input of size `256 × 256`.
+**E2 + E4 cascade** (sidebar option): E2 screens for suspicious images, E4's classifier must confirm
+before the E2 mask is shown. The checked-in cascade thresholds are provisional (`tuned: false`);
+run `evaluate_cascade.py` on validation before using it for final reporting.
+
+## Training and Final Evaluation
+
+Training and end-of-term experiments require the SIIM image/mask dataset and a GPU. Use
+[`RUN_NUA_SAU_KAGGLE.md`](RUN_NUA_SAU_KAGGLE.md) and run
+[`kaggle/PneumoAI_cuoi_ky.ipynb`](kaggle/PneumoAI_cuoi_ky.ipynb) on Kaggle. The notebook produces
+`final_results.zip` with metrics, validation prediction figures, tuned thresholds, and checkpoints.
+Do not report final Test metrics until the data-integrity check passes and the Val thresholds are
+locked.
 
 ## Hardware
 

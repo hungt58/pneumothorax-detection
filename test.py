@@ -6,6 +6,7 @@ import torch
 from PIL import Image
 import matplotlib.pyplot as plt
 
+from inference import checkpoint_image_size, predict_tensor, preprocess, resolve_thresholds
 from models.factory import load_model_from_checkpoint
 
 
@@ -20,6 +21,7 @@ CHECKPOINTS = {
         "ResNet18 Multi-task",
         "checkpoints/e4_resnet18_multitask_best.pt",
     ),
+    "5": ("ResNet18 segmentation only (E4b)", "checkpoints/e4b_resnet18_seg_best.pt"),
 }
 
 OUTPUT_DIR = Path("predictions")
@@ -31,10 +33,10 @@ def main():
     for key, (name, _) in CHECKPOINTS.items():
         print(f"{key}. {name}")
 
-    choice = input("\nChoose model (1-4): ").strip()
+    choice = input("\nChoose model (1-5): ").strip()
 
     if choice not in CHECKPOINTS:
-        print("Invalid choice. Please choose 1, 2, 3 or 4.")
+        print("Invalid choice. Please choose 1-5.")
         return
 
     model_name, checkpoint_path = CHECKPOINTS[choice]
@@ -68,62 +70,15 @@ def main():
     model = load_model_from_checkpoint(checkpoint, map_location="cpu")
     model = model.to(device).eval()
 
-    threshold = float(checkpoint.get("threshold", 0.5))
-
-    # Read and preprocess the X-ray image
-    image = Image.open(image_path).convert("L")
-    image = image.resize((IMAGE_SIZE, IMAGE_SIZE))
-    image_array = np.asarray(image, dtype=np.float32) / 255.0
-
-    input_tensor = torch.from_numpy(image_array).unsqueeze(0).unsqueeze(0)
-    input_tensor = input_tensor.to(device)
+    # Same preprocessing + validation-tuned thresholds as training (inference.py)
+    key = checkpoint_path.name.replace("_best.pt", "")
+    thr = resolve_thresholds(checkpoint, checkpoint.get("experiment") or key)
+    threshold = thr["seg_threshold"]
+    image, input_tensor = preprocess(Image.open(image_path), checkpoint_image_size(checkpoint))
 
     print("Running prediction...")
-
-   
-    with torch.inference_mode():
-        output = model(input_tensor)
-
-        cls_output = None
-
-        if isinstance(output, dict):
-            # Hỗ trợ các tên khóa của cả 4 mô hình
-            logits = (
-                output.get("segmentation_logits")
-                if output.get("segmentation_logits") is not None
-                else output.get("segmentation")
-            )
-
-            if logits is None:
-                logits = output.get("mask")
-
-            if logits is None:
-                raise ValueError(
-                    f"Cannot find segmentation output. "
-                    f"Keys: {list(output.keys())}"
-                )
-
-            cls_output = output.get(
-                "classification_logits",
-                output.get("classification"),
-            )
-
-        elif isinstance(output, (tuple, list)):
-            logits = output[0]
-            cls_output = output[1] if len(output) > 1 else None
-
-        else:
-            logits = output
-
-        probabilities = torch.sigmoid(logits)[0, 0].cpu().numpy()
-        mask = probabilities >= threshold
-
-        cls_probability = None
-        if cls_output is not None:
-            cls_probability = torch.sigmoid(
-                cls_output.reshape(-1)[0]
-            ).item()
-
+    pred = predict_tensor(model, input_tensor, threshold, thr["cls_threshold"], thr["min_pred_pixels"])
+    probabilities, mask, cls_probability = pred.probabilities, pred.mask, pred.cls_probability
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_stem = f"{image_path.stem}_{checkpoint_path.stem}"
@@ -131,7 +86,7 @@ def main():
     mask_path = OUTPUT_DIR / f"{output_stem}_mask.png"
     result_path = OUTPUT_DIR / f"{output_stem}_result.png"
 
-    original = np.asarray(image, dtype=np.uint8)
+    original = image
     Image.fromarray(mask.astype(np.uint8) * 255).save(mask_path)
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
@@ -162,7 +117,8 @@ def main():
     print("\nPrediction completed!")
     print(f"Model: {model_name}")
     print(f"Threshold: {threshold}")
-    print(f"Positive pixels: {int(mask.sum())}")
+    print(f"Positive pixels: {int(mask.sum())} (min {thr['min_pred_pixels']})")
+    print("Result:", "PNEUMOTHORAX SUSPECTED" if pred.is_positive else "no pneumothorax detected")
     print(f"Mask saved: {mask_path}")
     print(f"Visualization saved: {result_path}")
 

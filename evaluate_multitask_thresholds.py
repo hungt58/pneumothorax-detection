@@ -41,9 +41,10 @@ def main():
     model = load_model_from_checkpoint(checkpoint).to(device).eval()
     records = build_file_list(str(a.images), str(a.masks))
     train_records, val_records, test_records = split_data(records)
+    image_size = int(checkpoint.get("image_size", 256))
     _, val_loader, test_loader = build_dataloaders(train_records, val_records, test_records,
                                                    batch_size=a.batch_size, num_workers=a.num_workers,
-                                                   balanced_train=True, seed=42)
+                                                   balanced_train=True, seed=42, image_size=image_size)
     loader = val_loader if a.split == "val" else test_loader
     seg_probs, cls_probs, masks = [], [], []
     for batch in loader:
@@ -66,7 +67,7 @@ def main():
                      "min_pred_pixels": a.min_pred_pixels, **summary})
     if a.output is None:
         filename = "seg_cls_threshold_tuning.csv" if a.split == "val" else "final_test_metrics.csv"
-        a.output = Path("results/e4_resnet18_multitask") / filename
+        a.output = Path("results") / (checkpoint.get("experiment") or "e4_resnet18_multitask") / filename
     a.output.parent.mkdir(parents=True, exist_ok=True)
     with a.output.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())

@@ -1,0 +1,2 @@
+threshold,min_pred_pixels,dice_positive,iou_positive,image_sensitivity,image_specificity,false_positive_rate,predicted_positive_rate,tp,fn,fp,tn
+0.97,64,0.3542644057016238,0.2646288908047912,0.8011204481792717,0.6433734939759036,0.3566265060240964,0.4556803995006242,286,71,444,801

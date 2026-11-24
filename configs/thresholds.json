@@ -1,0 +1,35 @@
+{
+  "_note": "Thresholds chosen on VALIDATION only (never on test). Image is positive if the final mask has >= min_pred_pixels pixels. Update after re-tuning; the web demo and test.py read this file.",
+  "e1_unet": {
+    "seg_threshold": 0.97,
+    "min_pred_pixels": 64
+  },
+  "e2_attention_unet": {
+    "seg_threshold": 0.95,
+    "min_pred_pixels": 64
+  },
+  "e3_attention_multiscale": {
+    "seg_threshold": 0.96,
+    "min_pred_pixels": 64
+  },
+  "e4_resnet18_multitask": {
+    "seg_threshold": 0.3,
+    "cls_threshold": 0.3,
+    "min_pred_pixels": 64
+  },
+  "cascade_e2_e4": {
+    "e2_seg_threshold": 0.5,
+    "e4_cls_threshold": 0.15,
+    "min_pred_pixels": 64,
+    "tuned": true,
+    "_note": "Selected on VALIDATION by evaluate_cascade.py (max selection_score)."
+  },
+  "e4b_resnet18_seg": {
+    "seg_threshold": 0.86,
+    "min_pred_pixels": 64
+  },
+  "e2_attention_unet_512": {
+    "seg_threshold": 0.97,
+    "min_pred_pixels": 64
+  }
+}

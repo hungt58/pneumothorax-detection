@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from build_dataset import build_dataloaders, build_file_list, split_data
 from losses import MultiTaskLoss, SegmentationLoss
-from models.factory import MODEL_NAMES, build_model
+from models.factory import MODEL_NAMES, RESNET_MODELS, build_model, experiment_name
 from evaluation import final_mask
 
 
@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--masks", type=Path, required=True)
     p.add_argument("--model", choices=MODEL_NAMES, default="unet")
     p.add_argument("--no-pretrained", action="store_true", help="E4 smoke tests without downloading weights")
+    p.add_argument("--image-size", type=int, default=256, help="input resolution (256 = midterm runs, 512 = upgrade)")
     p.add_argument("--cls-threshold", type=float, default=0.5)
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--batch-size", type=int, default=8)
@@ -173,13 +174,13 @@ def main() -> None:
     if not args.images.is_dir() or not args.masks.is_dir():
         raise FileNotFoundError("--images and --masks must point to existing folders")
 
-    experiment = {"unet": "e1_unet", "attention_unet": "e2_attention_unet",
-                  "attention_multiscale_unet": "e3_attention_multiscale",
-                  "resnet18_multitask": "e4_resnet18_multitask"}[args.model]
+    if args.image_size % 32 != 0:
+        raise ValueError("--image-size must be a multiple of 32 (5 down-sampling stages)")
+    experiment = experiment_name(args.model, args.image_size)
     if args.checkpoint is None:
-        args.checkpoint = Path("checkpoints/unet_balanced_best.pt") if args.model == "unet" else Path(f"checkpoints/{experiment}_best.pt")
+        args.checkpoint = Path(f"checkpoints/{experiment}_best.pt")
     if args.history is None:
-        args.history = Path("results/unet/history_balanced.csv") if args.model == "unet" else Path(f"results/{experiment}/history.csv")
+        args.history = Path(f"results/{experiment}/history.csv")
 
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -193,6 +194,7 @@ def main() -> None:
         num_workers=args.num_workers,
         balanced_train=True,
         seed=42,
+        image_size=args.image_size,
     )
 
     train_pos = sum(r["HasDisease"] for r in train_records)
@@ -201,6 +203,7 @@ def main() -> None:
         f"(positive={train_pos}, negative={len(train_records)-train_pos}) | "
         f"val: {len(val_records)} | test: {len(test_records)}"
     )
+    print(f"Experiment: {experiment} | input {args.image_size}x{args.image_size}")
     print(f"Balanced TRAIN batches: {args.batch_size//2} positive + {args.batch_size//2} negative")
     loss_description = "BCEWithLogits(all images) + PositiveDice(positive masks only)"
     if args.model == "resnet18_multitask":
@@ -208,7 +211,7 @@ def main() -> None:
     print(f"Loss: {loss_description}")
 
     model_kwargs = ({"in_channels": 1, "out_channels": 1, "pretrained": not args.no_pretrained}
-                    if args.model == "resnet18_multitask" else
+                    if args.model in RESNET_MODELS else
                     {"in_channels": 1, "out_channels": 1, "features": (32, 64, 128, 256)})
     model = build_model(args.model, **model_kwargs).to(device)
     criterion = (MultiTaskLoss() if args.model == "resnet18_multitask" else
@@ -256,6 +259,8 @@ def main() -> None:
                     "optimizer_state_dict": optimizer.state_dict(),
                     "scheduler_state_dict": scheduler.state_dict(),
                     "features": (32, 64, 128, 256),
+                    "image_size": args.image_size,
+                    "experiment": experiment,
                     "threshold": args.threshold,
                     "cls_threshold": args.cls_threshold if args.model == "resnet18_multitask" else None,
                     "min_pred_pixels": args.min_pred_pixels,

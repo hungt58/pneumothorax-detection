@@ -1,0 +1,4 @@
+train-val: exact copies 0 | near copies (dHash<= 4) 57991 | val images affected 1126/1601
+train-test: exact copies 0 | near copies (dHash<= 4) 59313 | test images affected 1117/1602
+patients: no patient ids given (PNG release) - duplicate-image check only
+VERDICT: no exact copies across splits; review near copies in duplicates.csv
